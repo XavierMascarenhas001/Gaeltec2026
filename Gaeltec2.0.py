@@ -1451,3 +1451,158 @@ if misc_file is not None:
                 file_name=f"{cat_name}_Details_Separated.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
+
+# -----------------------------
+# 🛠️ Works Section
+# -----------------------------
+st.header("🛠️ Works")
+
+if misc_df is not None:
+    # -----------------------------
+    # Data preparation
+    # -----------------------------
+    filtered_df['item'] = filtered_df['item'].astype(str)
+    misc_df['column_b'] = misc_df['column_b'].astype(str)
+
+    # Map items to work instructions
+    item_to_column_i = misc_df.set_index('column_b')['column_i'].to_dict()
+    poles_df = filtered_df[filtered_df['pole'].notna() & (filtered_df['pole'].astype(str).str.lower() != "nan")].copy()
+    poles_df['Work instructions'] = poles_df['item'].map(item_to_column_i)
+
+    # Keep only rows with valid instructions, comments, and team_name
+    poles_df_clean = poles_df.dropna(subset=['Work instructions', 'comment', 'team_name'])[
+        ['pole', 'segmentcode', 'Work instructions', 'comment', 'team_name']
+    ]
+
+    # -----------------------------
+    # 🔘 Segment selector
+    # -----------------------------
+    segment_options = ['All'] + sorted(poles_df_clean['segmentcode'].dropna().astype(str).unique())
+    selected_segment = st.selectbox("Select a segment code:", segment_options)
+
+    if selected_segment != 'All':
+        poles_df_view = poles_df_clean[poles_df_clean['segmentcode'].astype(str) == selected_segment]
+    else:
+        poles_df_view = poles_df_clean.copy()
+
+    # -----------------------------
+    # 🎯 Pole selector (Cascading)
+    # -----------------------------
+    pole_options = sorted(poles_df_view['pole'].dropna().astype(str).unique())
+    selected_pole = st.selectbox("Select a pole to view details:", ["All"] + pole_options)
+
+    # Filter by selected pole
+    if selected_pole != "All":
+        poles_df_view = poles_df_view[poles_df_view['pole'].astype(str) == selected_pole]
+
+    # Display pole details if one is selected
+    if selected_pole != "All" and not poles_df_view.empty:
+        st.write(f"Details for pole **{selected_pole}**:")
+        st.dataframe(poles_df_view)
+
+    # -----------------------------
+    # 📊 Pie chart (Works breakdown)
+    # -----------------------------
+
+    if not poles_df_view.empty:
+        # Count work instructions and remove NaN / empty strings
+        work_data = (
+            poles_df_view['Work instructions']
+            .astype(str)
+            .str.lower()
+            .replace('nan', pd.NA)
+            .dropna()  # remove NaN
+            .value_counts()
+            .reset_index()
+        )
+        work_data.columns = ['Work instructions', 'total']
+
+        if not work_data.empty:
+            fig_work = px.pie(
+                work_data,
+                names='Work instructions',
+                values='total',
+                hole=0.4
+            )
+            fig_work.update_traces(textinfo='percent+label', textfont_size=16)
+            fig_work.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
+            st.plotly_chart(fig_work, use_container_width=True)
+        else:
+            st.info("No valid work instructions available for the selected filters.")
+    # -----------------------------
+    # 📄 Word export
+    # -----------------------------
+    if not poles_df_view.empty:
+        word_file = poles_to_word(poles_df_view)
+        st.download_button(
+            label="⬇️ Download Work Instructions (.docx)",
+            data=word_file,
+            file_name="Pole_Work_Instructions.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+# -----------------------------
+# 📈 Jobs per Team per Day (Segment + Pole aware)
+# -----------------------------
+st.subheader("📈 Jobs per Team per Day")
+
+if agg_view is not None and 'total' in agg_view.columns:
+    filtered_agg = agg_view.copy()
+
+    # Apply segment filter
+    if selected_segment != 'All' and 'segmentcode' in filtered_agg.columns:
+        filtered_agg = filtered_agg[
+            filtered_agg['segmentcode'].astype(str).str.strip() == str(selected_segment).strip()
+        ]
+
+    # Apply pole filter
+    if selected_pole != "All" and 'pole' in filtered_agg.columns:
+        filtered_agg = filtered_agg[
+            filtered_agg['pole'].astype(str).str.strip() == str(selected_pole).strip()
+        ]
+
+    # Ensure datetime column
+    if 'datetouse_dt' not in filtered_agg.columns:
+        filtered_agg['datetouse_dt'] = pd.to_datetime(filtered_agg['datetouse'], errors='coerce')
+    else:
+        filtered_agg['datetouse_dt'] = pd.to_datetime(filtered_agg['datetouse_dt'], errors='coerce')
+
+    # Ensure 'total' is numeric
+    filtered_agg['total'] = pd.to_numeric(filtered_agg['total'], errors='coerce').fillna(0)
+
+    # Drop invalid rows
+    filtered_agg = filtered_agg.dropna(subset=['datetouse_dt', 'team_name'])
+
+    if not filtered_agg.empty:
+        # Aggregate per day per team
+        time_df = filtered_agg.groupby(['datetouse_dt', 'team_name'], as_index=False)['total'].sum()
+
+        # Plot line chart
+        fig_time = px.line(
+            time_df,
+            x='datetouse_dt',
+            y='total',
+            color='team_name',
+            markers=True,
+            hover_data={'datetouse_dt': True, 'team_name': True, 'total': True}
+        )
+        fig_time.update_layout(
+            xaxis_title="Day",
+            yaxis_title="Total Jobs £",
+            xaxis=dict(
+                tickformat="%d/%m/%Y",
+                tickangle=45,
+                nticks=10,
+                tickmode='auto',
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            legend_title_text="Team",
+            height=500
+        )
+        st.plotly_chart(fig_time, use_container_width=True)
+    else:
+        st.info("No time-based data available for the selected filters.")
+else:
+    st.info("No 'total' column found in aggregated data.")
