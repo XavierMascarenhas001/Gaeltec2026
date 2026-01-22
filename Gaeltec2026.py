@@ -1380,7 +1380,7 @@ if misc_file is not None:
 
 
             # Your original approach but working:
-            extra_cols = ['poling team','team_name','segmentdesc','segmentcode', 'projectmanager', 'project', 'shire','material_code' ,'pid_ohl_nr', 'sourcefile' ]
+            extra_cols = ['qsub','poling team','team_name','segmentdesc','segmentcode', 'projectmanager', 'project', 'shire','material_code' ,'pid_ohl_nr', 'sourcefile' ]
             
             # Rename first
             selected_rows = selected_rows.rename(columns={
