@@ -313,7 +313,6 @@ pole_keys = {
     "11x240 BIOCIDE LV POLE":"11m B"
     "16x365 H POLE HV Creosote":"16s"
     "16x405 EHV SINGLE POLE CREOSOTE":"16esp"
-    "14x355 H POLE HV Creosote":"14es"
     "12x325 H POLE HV Creosote":"12es"
     "16x385 H POLE HV Creosote":"16es"
     "12x305 EHV SINGLE POLE CREOSOTE":"12s"
