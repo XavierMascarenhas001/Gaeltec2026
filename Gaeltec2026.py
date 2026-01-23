@@ -322,6 +322,15 @@ pole_keys = {
     "12x325 EHV SINGLE POLE CREOSOTE":"12es"
 }
 
+pole_change_keys = {
+    "Erect Single HV/EHV Pole, up to and including 12 metre pole":"HV pole", 
+    "Erect LV Structure Single Pole, up to and including 12 metre pole" :"LV pole",
+    "Erect Section Structure 'H' HV/EHV Pole, up to and including 12 metre pole.":"H HV pole",
+    "Plumb single pole":"Recover pole",
+    "Recover single pole, up to and including 15 metres in height, and reinstate, all ground conditions":"Recover pole"
+}
+
+
 # --- Equipment / Conductor Mappings ---
 equipment_keys = {
     "Hazel - 50mm² AAAC bare (1000m drums)": "Hazel 50mm² (1000m drums)",
@@ -706,6 +715,7 @@ foundation_steelwork_keys = {
 
 categories = [
     ("Poles 🪵", pole_keys, "Quantity"),
+    ("Poles _changed 🪵", pole_change_keys, "Quantity"),
     ("Transformers ⚡🏭", transformer_keys, "Quantity"),
     ("Conductors", conductor_keys, "Length (Km)"),
     ("Conductors_2", conductor_2_keys, "Length (Km)"),
@@ -1244,6 +1254,7 @@ if misc_file is not None:
 
     categories = [
         ("Poles 🪵", pole_keys, "Quantity"),
+        ("Poles _changed 🪵", pole_change_keys, "Quantity"),
         ("Transformers ⚡🏭", transformer_keys, "Quantity"),
         ("Conductors", conductor_keys, "Length (Km)"),
         ("Conductors_2", conductor_2_keys, "Length (Km)"),
