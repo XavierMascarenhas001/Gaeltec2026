@@ -21,6 +21,7 @@ from docx.enum.text import WD_COLOR_INDEX
 from collections import OrderedDict
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import Border, Side
 
 # --- Page config for wide layout ---
 st.set_page_config(
