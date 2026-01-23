@@ -19,6 +19,8 @@ from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_COLOR_INDEX
 from collections import OrderedDict
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 # --- Page config for wide layout ---
 st.set_page_config(
@@ -1446,6 +1448,27 @@ if misc_file is not None:
                     aggregated_df = pd.concat([aggregated_df, df_bar], ignore_index=True)
 
                 aggregated_df.to_excel(writer, sheet_name='Aggregated', index=False)
+                # Access the worksheet
+                ws = writer.book['Aggregated']
+                # ---- Header style ----
+                header_font = Font(bold=True, size=16)
+                header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+                for col_idx, cell in enumerate(ws[1], start=1):
+                    cell.font = header_font
+                    cell.fill = header_fill
+
+                    # Optional: auto-adjust column width
+                    column_letter = get_column_letter(col_idx)
+                    ws.column_dimensions[column_letter].width = 20
+
+                # ---- Alternating row colors ----
+                light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+                white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+                for row_idx in range(2, ws.max_row + 1):  # start after header
+                    fill = light_grey_fill if row_idx % 2 == 0 else white_fill
+                    for col_idx in range(1, ws.max_column + 1):
+                        ws.cell(row=row_idx, column=col_idx).fill = fill
 
             buffer_agg.seek(0)
             st.download_button(
