@@ -1453,6 +1453,10 @@ if misc_file is not None:
                 # ---- Header style ----
                 header_font = Font(bold=True, size=16)
                 header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+                # ---- Border styles ----
+                thin_side = Side(style="thin")
+                medium_side = Side(style="medium")
+                thick_side = Side(style="thick")
                 for col_idx, cell in enumerate(ws[1], start=1):
                     cell.font = header_font
                     cell.fill = header_fill
@@ -1469,6 +1473,27 @@ if misc_file is not None:
                     fill = light_grey_fill if row_idx % 2 == 0 else white_fill
                     for col_idx in range(1, ws.max_column + 1):
                         ws.cell(row=row_idx, column=col_idx).fill = fill
+
+                max_col = ws.max_column
+
+                for col_idx in range(1, max_col + 1):
+                    cell = ws.cell(row=1, column=col_idx)
+
+                    cell.border = Border(
+                        left=thick_side if col_idx == 1 else medium_side,
+                        right=thick_side if col_idx == max_col else medium_side,
+                        top=thick_side,
+                        bottom=thick_side
+                    )
+
+                for row_idx in range(2, ws.max_row + 1):
+                    for col_idx in range(1, max_col + 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+
+                        cell.border = Border(
+                            left=thin_side if col_idx == 1 else thin_side,
+                            right=thin_side
+                        )
 
             buffer_agg.seek(0)
             st.download_button(
