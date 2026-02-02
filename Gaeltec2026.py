@@ -241,6 +241,8 @@ file_project_mapping = {
     "connections": ["Ayrshire", "Connections"],
     "storms": ["Ayrshire", "Storms"],
     "11kv refurb": ["Ayrshire", "11kv Refurb"],
+    "11kV Refurb Ayrshire 2026": ["Ayrshire", "11kV Refurb"],
+    "11kV Refurb Ayrshire Pinwherry": ["Ayrshire", "11kV Refurb"],
     "aurs road": ["Ayrshire", "Aurs Road"],
     "spen labour": ["Ayrshire", "SPEN Labour"],
     "lvhi5": ["Ayrshire", "LV"],
@@ -325,14 +327,17 @@ pole_keys = {
     "12x325 EHV SINGLE POLE CREOSOTE":"12es"
 }
 
-pole_change_keys = {
-    "Erect Single HV/EHV Pole, up to and including 12 metre pole":"HV pole", 
-    "Erect LV Structure Single Pole, up to and including 12 metre pole" :"LV pole",
-    "Erect Section Structure 'H' HV/EHV Pole, up to and including 12 metre pole.":"H HV pole",
-    "Plumb single pole":"Recover pole",
-    "Recover single pole, up to and including 15 metres in height, and reinstate, all ground conditions":"Recover pole"
+pole_erected_keys = {
+    "Erect Single HV/EHV Pole, up to and including 12 metre pole":"Erect HV pole", 
+    "Erect Single HV/EHV Pole, up to and including 12 metre pole.":"Erect HV pole",
+    "Erect LV Structure Single Pole, up to and including 12 metre pole" :"Erect LV pole",
+    "Erect Section Structure 'H' HV/EHV Pole, up to and including 12 metre pole.":"H HV pole"
 }
 
+poles_replaced_keys = {
+    "Recover single pole, up to and including 15 metres in height, and reinstate, all ground conditions":"Recover single pole",
+    "Recover 'A' / 'H' pole, up to and including 15 metres in height, and reinstate, all ground conditions":"Recover H pole"
+}
 
 # --- Equipment / Conductor Mappings ---
 equipment_keys = {
@@ -718,7 +723,8 @@ foundation_steelwork_keys = {
 
 categories = [
     ("Poles 🪵", pole_keys, "Quantity"),
-    ("Poles _changed 🪵", pole_change_keys, "Quantity"),
+    ("Poles _erected 🪵", pole_erected_keys, "Quantity"),
+    ("Poles _replaced 🪵", poles_replaced_keys, "Quantity"),
     ("Transformers ⚡🏭", transformer_keys, "Quantity"),
     ("Conductors", conductor_keys, "Length (Km)"),
     ("Conductors_2", conductor_2_keys, "Length (Km)"),
@@ -731,6 +737,16 @@ categories = [
     ("Foundation & Steelwork 🏗️", foundation_steelwork_keys, "Quantity")
 ]
 
+column_rename_map = {
+    "mapped": "Output",
+    "segmentcode": "Circuit",
+    "datetouse_display": "Date",
+    "qsub": "Quantity",
+    "segmentdesc": "Segment",
+    "shire": "District",
+    "pid_ohl_nr": "PID",
+    "projectmanager": "Project Manager"
+}
 
 # --- Gradient background ---
 gradient_bg = """
@@ -763,37 +779,51 @@ st.markdown("<h1>📊 Data Management Dashboard</h1>", unsafe_allow_html=True)
 # -------------------------------
 # --- Upload Aggregated Parquet file ---
 # --- Load aggregated Parquet file ---
-aggregated_file = r"Master.parquet"
+st.header("Upload Data Files")
+
+aggregated_file = st.file_uploader(
+    "Upload Master.parquet",
+    type=["parquet"],
+    key="master"
+)
+
+agg_view = None
+
 if aggregated_file is not None:
     df = pd.read_parquet(aggregated_file)
     df.columns = df.columns.str.strip().str.lower()  # normalize columns
 
     if 'datetouse' in df.columns:
-        # Convert to datetime where possible
         df['datetouse_dt'] = pd.to_datetime(df['datetouse'], errors='coerce')
-        # Create display column
         df['datetouse_display'] = df['datetouse_dt'].dt.strftime("%d/%m/%Y")
-        # Mark empty dates as "Unplanned"
         df.loc[df['datetouse_dt'].isna(), 'datetouse_display'] = "Unplanned"
-        # OPTIONAL: normalize datetime column for sorting, keeping NaT intact
         df['datetouse_dt'] = df['datetouse_dt'].dt.normalize()
     else:
-        # Handle case where column is missing
         df['datetouse_dt'] = pd.NaT
         df['datetouse_display'] = "Unplanned"
-        
-    # Create agg_view for later use
+
     agg_view = df.copy()
 
 # --- Load Resume Parquet file (for %Complete pie chart) ---
-resume_file = r"CF_resume.parquet"
+resume_file = st.file_uploader(
+    "Upload CF_resume.parquet",
+    type=["parquet"],
+    key="resume"
+)
+
+resume_df = None
+
 if resume_file is not None:
     resume_df = pd.read_parquet(resume_file)
-    resume_df.columns = resume_df.columns.str.strip().str.lower()  # normalize columns
-
+    resume_df.columns = resume_df.columns.str.strip().str.lower()
 
 # --- Load Miscellaneous Parquet file ---
-misc_file = "miscelaneous.parquet"
+misc_file = st.file_uploader(
+    "Upload miscelaneous.parquet",
+    type=["parquet"],
+    key="misc"
+)
+
 misc_df = None
 
 if misc_file is not None:
@@ -1257,7 +1287,8 @@ if misc_file is not None:
 
     categories = [
         ("Poles 🪵", pole_keys, "Quantity"),
-        ("Poles _changed 🪵", pole_change_keys, "Quantity"),
+        ("Poles _erected 🪵", pole_erected_keys, "Quantity"),
+        ("Poles _replaced 🪵", poles_replaced_keys, "Quantity"),
         ("Transformers ⚡🏭", transformer_keys, "Quantity"),
         ("Conductors", conductor_keys, "Length (Km)"),
         ("Conductors_2", conductor_2_keys, "Length (Km)"),
@@ -1392,7 +1423,7 @@ if misc_file is not None:
 
 
             # Your original approach but working:
-            extra_cols = ['poling team','team_name','segmentdesc','segmentcode', 'projectmanager', 'project', 'shire','material_code' ,'pid_ohl_nr', 'sourcefile' ]
+            extra_cols = ['poling team','team_name','shire','project','projectmanager','segmentcode','segmentdesc', 'material_code' ,'pid_ohl_nr', 'sourcefile' ]
             
             # Rename first
             selected_rows = selected_rows.rename(columns={
@@ -1416,8 +1447,12 @@ if misc_file is not None:
                 ).dt.strftime("%d/%m/%Y")
                 selected_rows.loc[selected_rows['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
-            display_cols = ['mapped','pole','qsub','datetouse_display'] + extra_cols
+            # 🔥 RENAME FOR DISPLAY
+            selected_rows = selected_rows.rename(columns=column_rename_map)
+
+            display_cols = ['Output','Quantity','material_code','pole','Date','District','project','Project Manager','Circuit','Segment','team lider','PID', 'sourcefile']
             display_cols = [c for c in display_cols if c in selected_rows.columns]
+        
 
             if not selected_rows.empty:
                 st.dataframe(selected_rows[display_cols], use_container_width=True)
@@ -1442,7 +1477,10 @@ if misc_file is not None:
                         ).dt.strftime("%d/%m/%Y")
                         df_bar.loc[df_bar['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
-                    cols_to_include = ['mapped', 'datetouse_display','pole','qsub'] + extra_cols
+                    # 🔥 Rename columns BEFORE selecting
+                    df_bar = df_bar.rename(columns=column_rename_map)
+
+                    cols_to_include = ['Output','Quantity','material_code','pole','Date','District','project','Project Manager','Circuit','Segment','team lider','PID', 'sourcefile']
                     cols_to_include = [c for c in cols_to_include if c in df_bar.columns]
                     df_bar = df_bar[cols_to_include]
 
