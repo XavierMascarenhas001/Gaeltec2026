@@ -1120,7 +1120,7 @@ if misc_file is not None:
         export_df = build_export_df(filtered_df)
 
         buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(buffer) as writer:
             export_df.to_excel(
                 writer,
                 index=False,
