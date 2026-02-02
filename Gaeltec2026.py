@@ -175,6 +175,18 @@ def poles_to_word(df: pd.DataFrame) -> BytesIO:
     doc.save(buffer)
     buffer.seek(0)
     return buffer
+
+def build_export_df(filtered_df):
+    export_df = filtered_df.copy()
+
+    # Rename columns
+    export_df = export_df.rename(columns=column_rename_map)
+
+    # Keep only columns that actually exist
+    existing_cols = [c for c in export_columns if c in export_df.columns]
+    export_df = export_df[existing_cols]
+
+    return export_df
     
 # --- MAPPINGS ---
 
@@ -741,12 +753,19 @@ column_rename_map = {
     "mapped": "Output",
     "segmentcode": "Circuit",
     "datetouse_display": "Date",
-    "qsub": "Quantity",
+    "qty": "Quantity_original",
+    "qsub": "Quantity_used",
     "segmentdesc": "Segment",
     "shire": "District",
     "pid_ohl_nr": "PID",
     "projectmanager": "Project Manager"
 }
+
+export_columns = [
+    'Output', 'item', 'Quantity_original','Quantity_used', 'material_code', 'pole', 'Date',
+    'District', 'project', 'Project Manager', 'Circuit', 'Segment',
+    'team lider', 'PID', 'sourcefile'
+]
 
 # --- Gradient background ---
 gradient_bg = """
@@ -1093,6 +1112,25 @@ if misc_file is not None:
                                 st.write("No segment codes for this project.")
             else:
                 st.info("Project or Segment Code columns not found in the data.")
+
+        # ⬇️ Excel export button (AFTER filters & overview)
+        if filtered_df is not None and not filtered_df.empty:
+            export_df = build_export_df(filtered_df)
+
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                export_df.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Filtered Data"
+                )
+
+            st.download_button(
+                label="📥 Download Excel",
+                data=buffer.getvalue(),
+                file_name="dashboard_export.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         
             
             # --- Pie Chart: % Complete ---
