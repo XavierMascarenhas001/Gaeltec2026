@@ -1114,25 +1114,25 @@ if misc_file is not None:
             else:
                 st.info("Project or Segment Code columns not found in the data.")
 
-        # ⬇️ Excel export button (AFTER filters & overview)
-        if filtered_df is not None and not filtered_df.empty:
-            export_df = build_export_df(filtered_df)
 
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                export_df.to_excel(
-                    writer,
-                    index=False,
-                    sheet_name="Filtered Data"
-                )
+    # ⬇️ Excel export button (AFTER filters & overview)
+    if filtered_df is not None and not filtered_df.empty:
+        export_df = build_export_df(filtered_df)
 
-            st.download_button(
-                label="📥 Download Excel",
-                data=buffer.getvalue(),
-                file_name="dashboard_export.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            export_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Filtered Data"
             )
-        
+
+        st.download_button(
+            label="📥 Download Excel",
+            data=buffer.getvalue(),
+            file_name="dashboard_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
             
             # --- Pie Chart: % Complete ---
 # -------------------------------
