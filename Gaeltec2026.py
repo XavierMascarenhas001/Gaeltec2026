@@ -22,6 +22,7 @@ from collections import OrderedDict
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Border, Side
+import io
 
 # --- Page config for wide layout ---
 st.set_page_config(
