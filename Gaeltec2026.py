@@ -1140,8 +1140,8 @@ if misc_file is not None:
             export_df = export_df[cols_to_include]
 
             # Write to Excel
-            export_df.to_excel(writer, sheet_name='Aggregated', index=False)
-            ws = writer.book['Aggregated']
+            export_df.to_excel(writer, sheet_name='Output', index=False)
+            ws = writer.book['Output']
 
             # ---- Header style ----
             header_font = Font(bold=True, size=16)
@@ -1187,9 +1187,9 @@ if misc_file is not None:
 
         buffer_agg.seek(0)
         st.download_button(
-            label=f"📥 Download Excel (Aggregated Details)",
+            label=f"📥 Download Excel (Output Details)",
             data=buffer_agg,
-            file_name="Filtered_Details_Aggregated.xlsx",
+            file_name="Gaeltec_Output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
             
