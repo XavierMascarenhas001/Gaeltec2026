@@ -1228,6 +1228,9 @@ if filtered_df is not None and not filtered_df.empty:
         file_name="Gaeltec_Output.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+else:
+    st.info("Project or Segment Code columns not found in the data.")
             
             # --- Pie Chart: % Complete ---
 # -------------------------------
