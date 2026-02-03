@@ -734,6 +734,27 @@ foundation_steelwork_keys = {
     "Foundation Block Type 3; 1500mm as SP4019020": "Foundation Block Type 3; 1500mm as SP4019020"
 }
 
+summary_items = [
+    "Erect Single HV/EHV Pole, up to and including 12 metre pole.",
+    "Erect Section Structure 'H' HV/EHV Pole, up to and including 12 metre pole.",
+    "Erect LV Structure Single Pole, up to and including 12 metre pole.",
+    "Recover single pole, up to and including 15 metres in height, and reinstate, all ground conditions.",
+    "Recover 'A' / 'H' pole, up to and including 15 metres in height, and reinstate, all ground conditions.",
+    "Erect 11kV/33kV ABSW.",
+    "Erect 11kV Remote Controlled Switch Disconnector (Soule Auguste) or Auto Reclosure unit c/w VT, Aerial, RTU & umbilical cable.",
+    "Erect pole mounted transformer up to 100kVA 1.ph.",
+    "Erect pole mounted transformer up to 200kVA 3.p.h.",
+    "Remove pole mounted transformer.",
+    "Remove platform mounted or 'H' pole mounted transformer.",
+    "Remove 11kV/33kV ABSW.",
+    "Remove Auto Reclosure.",
+    "Install bare conductor, run out, sag, terminate, bind in and connect jumpers; <100mm².",
+    "Install bare conductor, run out, sag, terminate, bind in and connect jumpers; >=100mm² <200mm².",
+    "Install conductor, run out, sag, terminate, clamp in and connect jumpers; 2c + Earth.",
+    "Install conductor, run out, sag, terminate, clamp in and connect jumpers; 4c + Earth.",
+    "Install service span including connection to mainline & building / structure."
+]
+
 categories = [
     ("Poles 🪵", pole_keys, "Quantity"),
     ("Poles _erected 🪵", pole_erected_keys, "Quantity"),
@@ -1136,13 +1157,42 @@ if misc_file is not None:
                 'District', 'project', 'Project Manager', 'Circuit', 'Segment',
                 'team lider', 'PID', 'sourcefile'
             ]
-            cols_to_include = [c for c in cols_to_include if c in export_df.columns]
-            export_df = export_df[cols_to_include]
+        # Select only columns that exist
+            cols_to_include = [
+               'item', 'Quantity_original','Quantity_used', 'material_code', 'type', 'pole', 'Date',
+               'District', 'project', 'Project Manager', 'Circuit', 'Segment',
+               'team lider', 'PID', 'sourcefile'
+           ]
+           cols_to_include = [c for c in cols_to_include if c in export_df.columns]
+           export_df = export_df[cols_to_include]
 
-            # Write to Excel
-            export_df.to_excel(writer, sheet_name='Output', index=False)
-            ws = writer.book['Output']
+           # ---- Write Output sheet ----
+           export_df.to_excel(writer, sheet_name='Output', index=False)
+           ws = writer.book['Output']
 
+           # (Your existing header styling, borders, alternating rows…)
+
+           # ---- Step 2: Create Summary DataFrame ----
+           summary_df = (
+               export_df[export_df['item'].isin(summary_items)]
+               .groupby('item', as_index=False)['Quantity_used']
+               .sum()
+           )
+           summary_df = (
+               pd.DataFrame({'item': summary_items})
+               .merge(summary_df, on='item', how='left')
+               .fillna(0)
+           )
+           summary_df = summary_df.rename(columns={
+               'item': 'Description',
+               'Quantity_used': 'Total Quantity'
+           })
+
+           # ---- Step 3: Write Summary sheet ----
+           summary_df.to_excel(writer, sheet_name='Summary', index=False)
+           ws_summary = writer.book['Summary']
+
+        
             # ---- Header style ----
             header_font = Font(bold=True, size=16)
             header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
@@ -1184,6 +1234,7 @@ if misc_file is not None:
                         top=thin_side,
                         bottom=thin_side
                     )
+
 
         buffer_agg.seek(0)
         st.download_button(
