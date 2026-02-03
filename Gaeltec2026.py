@@ -1132,7 +1132,7 @@ if misc_file is not None:
 
             # Select only columns that exist in df
             cols_to_include = [
-                'Output', 'Quantity', 'material_code', 'pole', 'Date',
+                'Output','item', 'Quantity_original','Quantity_used', 'material_code', 'pole', 'Date',
                 'District', 'project', 'Project Manager', 'Circuit', 'Segment',
                 'team lider', 'PID', 'sourcefile'
             ]
