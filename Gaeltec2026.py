@@ -1151,7 +1151,12 @@ if misc_file is not None:
                 ).dt.strftime("%d/%m/%Y")
                 export_df.loc[export_df['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
-
+        cols_to_include = [
+            'item', 'Quantity_original','Quantity_used', 'material_code', 'type', 'pole', 'Date',
+            'District', 'project', 'Project Manager', 'Circuit', 'Segment',
+            'team lider', 'PID', 'sourcefile'
+        ]
+        
         cols_to_include = [c for c in cols_to_include if c in export_df.columns]
         export_df = export_df[cols_to_include]
 
