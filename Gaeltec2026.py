@@ -1151,66 +1151,50 @@ if misc_file is not None:
                 ).dt.strftime("%d/%m/%Y")
                 export_df.loc[export_df['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
-            # Select only columns that exist in df
-            cols_to_include = [
-                'item', 'Quantity_original','Quantity_used', 'material_code', 'type', 'pole', 'Date',
-                'District', 'project', 'Project Manager', 'Circuit', 'Segment',
-                'team lider', 'PID', 'sourcefile'
-            ]
-        # Select only columns that exist
-            cols_to_include = [
-               'item', 'Quantity_original','Quantity_used', 'material_code', 'type', 'pole', 'Date',
-               'District', 'project', 'Project Manager', 'Circuit', 'Segment',
-               'team lider', 'PID', 'sourcefile'
-           ]
-           cols_to_include = [c for c in cols_to_include if c in export_df.columns]
-           export_df = export_df[cols_to_include]
 
-           # ---- Write Output sheet ----
-           export_df.to_excel(writer, sheet_name='Output', index=False)
-           ws = writer.book['Output']
+        cols_to_include = [c for c in cols_to_include if c in export_df.columns]
+        export_df = export_df[cols_to_include]
 
-           # (Your existing header styling, borders, alternating rows…)
+        # ---- Write Output sheet ----
+        export_df.to_excel(writer, sheet_name='Output', index=False)
+        ws = writer.book['Output']
 
-           # ---- Step 2: Create Summary DataFrame ----
-           summary_df = (
-               export_df[export_df['item'].isin(summary_items)]
-               .groupby('item', as_index=False)['Quantity_used']
-               .sum()
-           )
-           summary_df = (
-               pd.DataFrame({'item': summary_items})
-               .merge(summary_df, on='item', how='left')
-               .fillna(0)
-           )
-           summary_df = summary_df.rename(columns={
-               'item': 'Description',
-               'Quantity_used': 'Total Quantity'
-           })
+        # ---- Write Summary sheet ----
+        summary_df = (
+            export_df[export_df['item'].isin(summary_items)]
+            .groupby('item', as_index=False)['Quantity_used']
+            .sum()
+        )
+        summary_df = (
+            pd.DataFrame({'item': summary_items})
+            .merge(summary_df, on='item', how='left')
+            .fillna(0)
+        )
+        summary_df = summary_df.rename(columns={
+            'item': 'Description',
+            'Quantity_used': 'Total Quantity'
+        })
+        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        ws_summary = writer.book['Summary']
 
-           # ---- Step 3: Write Summary sheet ----
-           summary_df.to_excel(writer, sheet_name='Summary', index=False)
-           ws_summary = writer.book['Summary']
+        # ---- Formatting (same for both sheets) ----
+        header_font = Font(bold=True, size=16)
+        header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+        thin_side = Side(style="thin")
+        medium_side = Side(style="medium")
+        thick_side = Side(style="thick")
+        light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 
-        
-            # ---- Header style ----
-            header_font = Font(bold=True, size=16)
-            header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+        for sheet in [ws, ws_summary]:
+            max_col = sheet.max_column
+            max_row = sheet.max_row
 
-            # ---- Borders ----
-            thin_side = Side(style="thin")
-            medium_side = Side(style="medium")
-            thick_side = Side(style="thick")
-
-            max_col = ws.max_column
-            max_row = ws.max_row
-
-            for col_idx, cell in enumerate(ws[1], start=1):
+            # Header
+            for col_idx, cell in enumerate(sheet[1], start=1):
                 cell.font = header_font
                 cell.fill = header_fill
-                # Optional: auto-width
-                ws.column_dimensions[get_column_letter(col_idx)].width = 20
-                # Header borders
+                sheet.column_dimensions[get_column_letter(col_idx)].width = 60 if col_idx == 1 else 20
                 cell.border = Border(
                     left=thick_side if col_idx == 1 else medium_side,
                     right=thick_side if col_idx == max_col else medium_side,
@@ -1218,31 +1202,27 @@ if misc_file is not None:
                     bottom=thick_side
                 )
 
-            # ---- Alternating row colors ----
-            light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-            white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-
+            # Alternating rows
             for row_idx in range(2, max_row + 1):
                 fill = light_grey_fill if row_idx % 2 == 0 else white_fill
                 for col_idx in range(1, max_col + 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell = sheet.cell(row=row_idx, column=col_idx)
                     cell.fill = fill
-                    # Row borders
                     cell.border = Border(
-                        left=thin_side if col_idx == 1 else thin_side,
+                        left=thin_side,
                         right=thin_side,
                         top=thin_side,
                         bottom=thin_side
                     )
 
-
-        buffer_agg.seek(0)
-        st.download_button(
-            label=f"📥 Download Excel (Output Details)",
-            data=buffer_agg,
-            file_name="Gaeltec_Output.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    # ---- Download button ----
+    buffer_agg.seek(0)
+    st.download_button(
+        label=f"📥 Download Excel (Output Details)",
+        data=buffer_agg,
+        file_name="Gaeltec_Output.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
             
             # --- Pie Chart: % Complete ---
 # -------------------------------
