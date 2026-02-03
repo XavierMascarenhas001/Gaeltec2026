@@ -1136,27 +1136,27 @@ if misc_file is not None:
                 st.info("Project or Segment Code columns not found in the data.")
 
 
-    if filtered_df is not None and not filtered_df.empty:
-        buffer_agg = BytesIO()
+if filtered_df is not None and not filtered_df.empty:
+    buffer_agg = BytesIO()
 
-        with pd.ExcelWriter(buffer_agg, engine='openpyxl') as writer:
-            # Copy & rename columns
-            export_df = filtered_df.copy()
-            export_df = export_df.rename(columns=column_rename_map)
+    with pd.ExcelWriter(buffer_agg, engine='openpyxl') as writer:
+        # ---- Prepare export_df ----
+        export_df = filtered_df.copy()
+        export_df = export_df.rename(columns=column_rename_map)
 
-            # Format dates if present
-            if 'datetouse' in export_df.columns:
-                export_df['datetouse_display'] = pd.to_datetime(
-                    export_df['datetouse'], errors='coerce'
-                ).dt.strftime("%d/%m/%Y")
-                export_df.loc[export_df['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
+        # Format dates
+        if 'datetouse' in export_df.columns:
+            export_df['datetouse_display'] = pd.to_datetime(
+                export_df['datetouse'], errors='coerce'
+            ).dt.strftime("%d/%m/%Y")
+            export_df.loc[export_df['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
+        # Select only columns that exist
         cols_to_include = [
             'item', 'Quantity_original','Quantity_used', 'material_code', 'type', 'pole', 'Date',
             'District', 'project', 'Project Manager', 'Circuit', 'Segment',
             'team lider', 'PID', 'sourcefile'
         ]
-        
         cols_to_include = [c for c in cols_to_include if c in export_df.columns]
         export_df = export_df[cols_to_include]
 
@@ -1182,7 +1182,7 @@ if misc_file is not None:
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         ws_summary = writer.book['Summary']
 
-        # ---- Formatting (same for both sheets) ----
+        # ---- Formatting for both sheets ----
         header_font = Font(bold=True, size=16)
         header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
         thin_side = Side(style="thin")
@@ -1220,10 +1220,10 @@ if misc_file is not None:
                         bottom=thin_side
                     )
 
-    # ---- Download button ----
+    # ---- Download button (outside 'with') ----
     buffer_agg.seek(0)
     st.download_button(
-        label=f"📥 Download Excel (Output Details)",
+        label="📥 Download Excel (Output Details)",
         data=buffer_agg,
         file_name="Gaeltec_Output.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
