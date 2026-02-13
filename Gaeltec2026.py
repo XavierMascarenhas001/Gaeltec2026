@@ -23,6 +23,10 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Border, Side
 import io
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import numbers
 
 # --- Page config for wide layout ---
 st.set_page_config(
@@ -188,6 +192,324 @@ def build_export_df(filtered_df):
     export_df = export_df[existing_cols]
 
     return export_df
+
+# Normalize strings: remove leading/trailing spaces, lowercase, remove extra dots
+def normalize_item(s):
+    if pd.isna(s):
+        return ""
+    s = str(s).strip().lower()           # strip spaces and lowercase
+    s = s.replace(".", "")               # remove dots
+    s = re.sub(r"\s+", " ", s)          # collapse multiple spaces
+    return s
+
+def apply_common_filters(df):
+    df = df.copy()
+
+    # Ensure datetime
+    df['datetouse_dt'] = pd.to_datetime(df['datetouse'], errors='coerce')
+
+    # Date rule: after 2023
+    df = df[df['datetouse_dt'].dt.year > 2023]
+
+    # Segment
+    if selected_segment != 'All' and 'segmentcode' in df.columns:
+        df = df[
+            df['segmentcode'].astype(str).str.strip()
+            == str(selected_segment).strip()
+        ]
+
+    # Pole
+    if selected_pole != "All" and 'pole' in df.columns:
+        df = df[
+            df['pole'].astype(str).str.strip()
+            == str(selected_pole).strip()
+        ]
+
+    # Ensure numeric total
+    if 'total' in df.columns:
+        df['total'] = pd.to_numeric(df['total'], errors='coerce')
+
+    return df.dropna(subset=['datetouse_dt'])
+    
+def prepare_dataframe(df):
+    df = df.copy()
+    df.columns = df.columns.str.strip().str.lower()
+
+    if 'datetouse' in df.columns:
+        df['datetouse_dt'] = pd.to_datetime(df['datetouse'], errors='coerce').dt.normalize()
+    else:
+        df['datetouse_dt'] = pd.NaT
+
+    # Make numeric columns safe
+    for col in ['total', 'orig']:
+        if col in df.columns:
+            df[col] = (
+                df[col].astype(str)
+                .str.replace(" ", "")
+                .str.replace(",", ".", regex=False)
+                .astype(float)
+            )
+
+    return df
+
+def multi_select_filter(col, label, df):
+    if col not in df.columns:
+        return ["All"], df
+
+    options = ["All"] + sorted(df[col].dropna().astype(str).unique())
+    selected = st.sidebar.multiselect(label, options, default=["All"])
+
+    if "All" in selected:
+        return selected, df
+
+    return selected, df[df[col].astype(str).isin(selected)]
+
+
+
+def to_excel(project_df, team_df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+
+        # ---- Sheet 1: Revenue per Project ----
+        if not project_df.empty:
+            project_df.to_excel(writer, index=False, sheet_name="Revenue per Project", startrow=1)
+            ws_proj = writer.sheets["Revenue per Project"]
+
+            # ---- Column widths ----
+            ws_proj.column_dimensions["A"].width = 30
+            ws_proj.column_dimensions["B"].width = 18
+
+            # ---- Styles ----
+            header_font = Font(bold=True, size=14)
+            header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+            thin_side = Side(style="thin")
+            medium_side = Side(style="medium")
+            thick_side = Side(style="thick")
+            light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+            white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+            max_col = ws_proj.max_column
+            max_row = ws_proj.max_row
+
+            # Set row 1 height for images
+            ws_proj.row_dimensions[1].height = 120
+
+            # Header → row 2
+            for col_idx, cell in enumerate(ws_proj[2], start=1):
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.border = Border(
+                    left=thick_side if col_idx == 1 else medium_side,
+                    right=thick_side if col_idx == max_col else medium_side,
+                    top=thick_side,
+                    bottom=thick_side
+                )
+
+            # Data rows → start row 3
+            for row_idx in range(3, max_row + 1):
+                fill = light_grey_fill if row_idx % 2 == 0 else white_fill
+                for col_idx in range(1, max_col + 1):
+                    cell = ws_proj.cell(row=row_idx, column=col_idx)
+                    cell.fill = fill
+                    cell.border = Border(
+                        left=thin_side,
+                        right=thin_side,
+                        top=thin_side,
+                        bottom=thin_side
+                    )
+
+            # ---- Add images in row 1 ----
+            img1 = XLImage("Images/GaeltecImage.png")
+            img2 = XLImage("Images/SPEN.png")
+            img1.width = 120; img1.height = 120; img1.anchor = "A1"
+            img2.width = 360; img2.height = 120; img2.anchor = "B1"
+            ws_proj.add_image(img1)
+            ws_proj.add_image(img2)
+
+        # ---- Sheet 2: Revenue per Team ----
+        if not team_df.empty:
+            team_df.to_excel(writer, index=False, sheet_name="Revenue per Team", startrow=1)
+            ws_team = writer.sheets["Revenue per Team"]
+
+            ws_team.column_dimensions["A"].width = 25
+            ws_team.column_dimensions["B"].width = 18
+
+            max_col = ws_team.max_column
+            max_row = ws_team.max_row
+
+            # Row 1 for images
+            ws_team.row_dimensions[1].height = 120
+
+            # Header → row 2
+            for col_idx, cell in enumerate(ws_team[2], start=1):
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.border = Border(
+                    left=thick_side if col_idx == 1 else medium_side,
+                    right=thick_side if col_idx == max_col else medium_side,
+                    top=thick_side,
+                    bottom=thick_side
+                )
+
+            # Data rows → start row 3
+            for row_idx in range(3, max_row + 1):
+                fill = light_grey_fill if row_idx % 2 == 0 else white_fill
+                for col_idx in range(1, max_col + 1):
+                    cell = ws_team.cell(row=row_idx, column=col_idx)
+                    cell.fill = fill
+                    cell.border = Border(
+                        left=thin_side,
+                        right=thin_side,
+                        top=thin_side,
+                        bottom=thin_side
+                    )
+
+            # ---- Add images in row 1 ----
+            img1 = XLImage("Images/GaeltecImage.png")
+            img2 = XLImage("Images/SPEN.png")
+            img1.width = 120; img1.height = 120; img1.anchor = "A1"
+            img2.width = 360; img2.height = 120; img2.anchor = "B1"
+            ws_team.add_image(img1)
+            ws_team.add_image(img2)
+
+    output.seek(0)
+    return output
+
+def generate_excel_styled_multilevel(filtered_df, poles_df=None):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Daily Revenue"
+
+    # ---- Sheet 1: Daily Revenue ----
+    if {'shire', 'project', 'segmentcode', 'projectmanager', 'datetouse_dt','done', 'total'}.issubset(filtered_df.columns):
+        daily_df = (
+            filtered_df
+            .groupby(['datetouse_dt','shire','project','segmentcode','projectmanager'], as_index=False)
+            .agg({'total':'sum'})
+        )
+        daily_df.rename(columns={
+            'datetouse_dt':'Date',
+            'total':'Revenue (£)',
+            'segmentcode':'Segment',
+            'projectmanager':'Project Manager'
+        }, inplace=True)
+
+        # Write header in ROW 2 (row 1 reserved for images)
+        for col_idx, col_name in enumerate(daily_df.columns.tolist(), start=1):
+            ws.cell(row=2, column=col_idx, value=col_name)
+
+        # Write data starting from row 3
+        for r_idx, row in enumerate(daily_df.values.tolist(), start=3):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+
+    # ---- Sheet 2: Poles Summary ----
+    ws_summary = wb.create_sheet(title="Poles Summary")
+    if poles_df is not None and not poles_df.empty:
+        poles_summary = (
+            poles_df[['shire','project','segmentcode','pole']]
+            .drop_duplicates()
+            .groupby(['shire','project','segmentcode'], as_index=False)
+            .agg({'pole': lambda x: ', '.join(sorted(x.astype(str)))})
+        )
+        poles_summary.rename(columns={'pole':'Poles', 'segmentcode':'Segment'}, inplace=True)
+
+        # Write multi-level headers (Row 2-4)
+        headers = ['Shire','Project','Segment','Poles']
+        for idx, h in enumerate(headers, start=1):
+            ws_summary.cell(row=2, column=idx, value=h)  # Shire header
+            ws_summary.cell(row=3, column=idx, value=h if h != 'Poles' else '')  # Project header
+            ws_summary.cell(row=4, column=idx, value=h if h != 'Poles' else '')  # Segment header
+
+        # Write data starting from row 5
+        for r_idx, row in enumerate(poles_summary.values.tolist(), start=5):
+            for c_idx, value in enumerate(row, start=1):
+                ws_summary.cell(row=r_idx, column=c_idx, value=value)
+
+    # ---- Formatting styles ----
+    header_font = Font(bold=True, size=16)
+    header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+    thin_side = Side(style="thin")
+    medium_side = Side(style="medium")
+    thick_side = Side(style="thick")
+    light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+    # ---- Add images ----
+    IMG_HEIGHT = 120
+    IMG_WIDTH_SMALL = 120
+    IMG_WIDTH_LARGE = IMG_WIDTH_SMALL * 3
+
+    # Set row 1 height to fit images
+    ws.row_dimensions[1].height = IMG_HEIGHT * 0.75  # approximate pixels → Excel points
+    ws_summary.row_dimensions[1].height = IMG_HEIGHT * 0.75
+
+    # Position images (row 1)
+    img1.anchor = "B1"
+    img2.anchor = "A1"
+
+    ws.add_image(img1)
+    ws.add_image(img2)
+
+    # Same for Summary
+    img1_s = XLImage("Images/GaeltecImage.png")
+    img2_s = XLImage("Images/SPEN.png")
+
+    img1_s.width = IMG_WIDTH_SMALL
+    img1_s.height = IMG_HEIGHT
+    img1_s.anchor = "A1"
+
+    img2_s.width = IMG_WIDTH_LARGE
+    img2_s.height = IMG_HEIGHT
+    img2_s.anchor = "B1"
+
+    # Sheet 2 images
+    img1_s = XLImage("Images/GaeltecImage.png")
+    img2_s = XLImage("Images/SPEN.png")
+    img1_s.width = IMG_WIDTH_SMALL; img1_s.height = IMG_HEIGHT; img1_s.anchor = "A1"
+    img2_s.width = IMG_WIDTH_LARGE; img2_s.height = IMG_HEIGHT; img2_s.anchor = "B1"
+    ws_summary.add_image(img1_s)
+    ws_summary.add_image(img2_s)
+
+    # ---- Apply formatting ----
+    for sheet in [ws, ws_summary]:
+        max_col = sheet.max_column
+        max_row = sheet.max_row
+
+        # Header rows
+        for row_idx in range(2, 5 if sheet == ws_summary else 3):
+            for col_idx in range(1, max_col + 1):
+                cell = sheet.cell(row=row_idx, column=col_idx)
+                cell.font = header_font
+                cell.fill = header_fill
+                sheet.column_dimensions[get_column_letter(col_idx)].width = 60 if col_idx == 1 else 20
+                cell.border = Border(
+                    left=thick_side if col_idx == 1 else medium_side,
+                    right=thick_side if col_idx == max_col else medium_side,
+                    top=thick_side,
+                    bottom=thick_side
+                )
+
+        # DATA ROWS → after headers
+        start_data_row = 5 if sheet == ws_summary else 3
+        for row_idx in range(start_data_row, max_row + 1):
+            fill = light_grey_fill if row_idx % 2 == 1 else white_fill
+            for col_idx in range(1, max_col + 1):
+                cell = sheet.cell(row=row_idx, column=col_idx)
+                cell.fill = fill
+                cell.border = Border(
+                    left=thin_side,
+                    right=thin_side,
+                    top=thin_side,
+                    bottom=thin_side
+                )
+
+    # Save to BytesIO
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
     
 # --- MAPPINGS ---
 
@@ -267,79 +589,6 @@ file_project_mapping = {
     "33kv rebuilt": ["Lanark", "33kV Rebuilt"]
 }
 
-# --- Pole Mappings (dictionary style, includes new additions) ---
-pole_keys = {
-    "9x220 BIOCIDE LV POLE": "9m B",
-    "9x275 BIOCIDE LV POLE": "9s B",
-    "9x220 CREOSOTE LV POLE": "9m",
-    "9x275 CREOSOTE LV POLE": "9s",
-    "9x220 HV SINGLE POLE": "9m",
-    "9x275 HV SINGLE POLE": "9s",
-    "9x295 HV SINGLE POLE": "9es",
-    "9x315 HV SINGLE POLE": "9esp",
-    "10x230 BIOCIDE LV POLE": "10m B",
-    "10x230 HV SINGLE POLE": "10m",
-    "10x285 BIOCIDE LV POLE": "10s B",
-    "10x285 H POLE HV Creosote": "10s",
-    "10x285 HV SINGLE POLE": "10s",
-    "10x305 HV SINGLE POLE": "10es",
-    "11x295 HV SINGLE POLE": "11s",
-    "11x295 H POLE HV Creosote": "11s",
-    "11x295 BIOCIDE LV POLE": "11sB",
-    "12x250 BIOCIDE LV POLE": "12m B",
-    "12x305 BIOCIDE LV POLE": "12s B",
-    "12x250 CREOSOTE LV POLE": "12m",
-    "12x305 CREOSOTE LV POLE": "12s",
-    "12x305 H POLE HV Creosote":"12s",
-    "12x250 HV SINGLE POLE": "12m",
-    "12x305 HV SINGLE POLE": "12s",
-    "12x325 HV SINGLE POLE": "12es",
-    "12x345 HV SINGLE POLE": "12esp",
-    "13x260 BIOCIDE LV POLE": "13m B",
-    "13x320 BIOCIDE LV POLE": "13s B",
-    "13x260 CREOSOTE LV POLE": "13m",
-    "13x320 CREOSOTE LV POLE": "13s",
-    "13x260 HV SINGLE POLE": "13m",
-    "13x320 HV SINGLE POLE": "13s",
-    "13x340 HV SINGLE POLE": "13es",
-    "13x365 HV SINGLE POLE": "13esp",
-    "14x275 BIOCIDE LV POLE": "14m B",
-    "14x335 BIOCIDE LV POLE": "14s B",
-    "14x275 CREOSOTE LV POLE": "14m",
-    "14x335 CREOSOTE LV POLE": "14s",
-    "14x275 HV SINGLE POLE": "14m",
-    "14x335 HV SINGLE POLE": "14s",
-    "14x355 HV SINGLE POLE": "14es",
-    "14x375 HV SINGLE POLE": "14esp",
-    "16x305 BIOCIDE LV POLE": "16m B",
-    "16x365 BIOCIDE LV POLE": "16s B",
-    "16x305 CREOSOTE LV POLE": "16m",
-    "16x365 CREOSOTE LV POLE": "16s",
-    "16x305 HV SINGLE POLE": "16m",
-    "16x365 HV SINGLE POLE": "16s",
-    "16x385 HV SINGLE POLE": "16es",
-    "16x405 HV SINGLE POLE": "16esp",
-    "11x315 H POLE HV Creosote":"11es",
-    "14x335 H POLE HV Creosote":"14s",
-    "11x315 HV SINGLE POLE":"11es",
-    "13x320 H POLE HV Creosote":"13s",
-    "11x240 CREOSOTE LV POLE":"11",
-    "11x240 HV SINGLE POLE":"11m",
-    "10x230 CREOSOTE LV POLE":"10m",
-    "11x335 H POLE HV Creosote":"11esp",
-    "10x305 H POLE HV Creosote":"10es",
-    "11x240 BIOCIDE LV POLE":"11m B",
-    "16x365 H POLE HV Creosote":"16s",
-    "16x405 EHV SINGLE POLE CREOSOTE":"16esp",
-    "12x325 H POLE HV Creosote":"12es",
-    "16x385 H POLE HV Creosote":"16es",
-    "12x305 EHV SINGLE POLE CREOSOTE":"12s",
-    "13x340 EHV SINGLE POLE CREOSOTE":"13es",
-    "11x335 EHV SINGLE POLE CREOSOTE":"11es",
-    "11x315 EHV SINGLE POLE CREOSOTE":"11es",
-    "12x325 EHV SINGLE POLE CREOSOTE":"12es"
-}
-
 pole_erected_keys = {
     "Erect Single HV/EHV Pole, up to and including 12 metre pole":"Erect HV pole", 
     "Erect Single HV/EHV Pole, up to and including 12 metre pole.":"Erect HV pole",
@@ -352,66 +601,6 @@ poles_replaced_keys = {
     "Recover 'A' / 'H' pole, up to and including 15 metres in height, and reinstate, all ground conditions":"Recover H pole"
 }
 
-# --- Equipment / Conductor Mappings ---
-equipment_keys = {
-    "Hazel - 50mm² AAAC bare (1000m drums)": "Hazel 50mm² (1000m drums)",
-    "Oak - 100mm² AAAC bare (1000m drums)": "Oak 100mm² (1000m drums)",
-    "Ash - 150mm² AAAC bare (1000m drums)": "Ash 150mm² (1000m drums)",
-    "Poplar - 200mm² AAAC bare (1000m drums)": "Poplar 200mm² (1000m drums)",
-    "Upas - 300mm² AAAC bare (1000m drums)": "Upas 300mm² (1000m drums)",
-    "Poplar OPPC - 200mm² AAAC equivalent bare": "Poplar OPPC 200mm²",
-    "Upas OPPC - 300mm² AAAC equivalent bare": "Upas OPPC 300mm²",
-    # ACSR
-    "Gopher - 25mm² ACSR bare (1000m drums)": "Gopher 25mm² (1000m drums)",
-    "Caton - 25mm² Compacted ACSR bare (1000m drums)": "Caton 25mm² (1000m drums)",
-    "Rabbit - 50mm² ACSR bare (1000m drums)": "Rabbit 50mm² (1000m drums)",
-    "Wolf - 150mm² ACSR bare (1000m drums)": "Wolf 150mm² (1000m drums)",
-    "Horse - 70mm² ACSR bare": "Horse 70mm²",
-    "Dog - 100mm² ACSR bare (1000m drums)": "Dog 100mm² (1000m drums)",
-    "Dingo - 150mm² ACSR bare (1000m drums)": "Dingo 150mm² (1000m drums)",
-    # Copper
-    "Hard Drawn Copper 16mm² ( 3/2.65mm ) (500m drums)": "Copper 16mm² (500m drums)",
-    "Hard Drawn Copper 32mm² ( 3/3.75mm ) (1000m drums)": "Copper 32mm² (500m drums)",
-    "Hard Drawn Copper 70mm² (500m drums)": "Copper 70mm² (500m drums)",
-    "Hard Drawn Copper 100mm² (500m drums)": "Copper 100mm² (500m drums)",
-    # PVC covered
-    "35mm² Copper (Green / Yellow PVC covered) (50m drums)": "Copper 35mm² GY PVC (50m drums)",
-    "70mm² Copper (Green / Yellow PVC covered) (50m drums)": "Copper 70mm² GY PVC (50m drums)",
-    "35mm² Copper (Blue PVC covered) (50m drums)": "Copper 35mm² Blue PVC (50m drums)",
-    "70mm² Copper (Blue PVC covered) (50m drums)": "Copper 70mm² Blue PVC (50m drums)",
-    # Double insulated
-    "35mm² Double Insulated (Brown) (50m drums)": "Double Insulated 35mm² Brown (50m drums)",
-    "35mm² Double Insulated (Blue) (50m drums)": "Double Insulated 35mm² Blue (50m drums)",
-    "70mm² Double Insulated (Brown) (50m drums)": "Double Insulated 70mm² Brown (50m drums)",
-    "70mm² Double Insulated (Blue) (50m drums)": "Double Insulated 70mm² Blue (50m drums)",
-    "120mm² Double Insulated (Brown) (50m drums)": "Double Insulated 120mm² Brown (50m drums)",
-    "120mm² Double Insulated (Blue) (50m drums)": "Double Insulated 120mm² Blue (50m drums)",
-    # LV cables
-    "LV Cable 1ph 4mm Concentric (250m drums)": "LV 1ph 4mm Concentric (250m drums)",
-    "LV Cable 1ph 25mm CNE (250m drums)": "LV 1ph 25mm CNE (250m drums)",
-    "LV Cable 1ph 25mm SNE (100m drums)": "LV 1ph 25mm SNE (100m drums)",
-    "LV Cable 1ph 35mm CNE (250m drums)": "LV 1ph 35mm CNE (250m drums)",
-    "LV Cable 1ph 35mm SNE (100m drums)": "LV 1ph 35mm SNE (100m drums)",
-    "LV Cable 3ph 35mm Cu Split Con (250m drums)": "LV 3ph 35mm Cu Split Con (250m drums)",
-    "LV Cable 3ph 35mm SNE (250m drums)": "LV 3ph 35mm SNE (250m drums)",
-    "LV Cable 3ph 35mm CNE (250m drums)": "LV 3ph 35mm CNE (250m drums)",
-    "LV Cable 3ph 35mm CNE Al (LSOH) (250m drums)": "LV 3ph 35mm CNE Al LSOH (250m drums)",
-    "LV Cable 3c 95mm W/F (250m drums)": "LV 3c 95mm W/F (250m drums)",
-    "LV Cable 3c 185mm W/F (250m drums)": "LV 3c 185mm W/F (250m drums)",
-    "LV Cable 3c 300mm W/F (250m drums)": "LV 3c 300mm W/F (250m drums)",
-    "LV Cable 4c 95mm W/F (250m drums)": "LV 4c 95mm W/F (250m drums)",
-    "LV Cable 4c 185mm W/F (250m drums)": "LV 4c 185mm W/F (250m drums)",
-    "LV Cable 4c 240mm W/F (250m drums)": "LV 4c 240mm W/F (250m drums)",
-    "LV Marker Tape (365m roll)": "LV Marker Tape (365m roll)",
-    # 11kV
-    "11kv Cable 95mm 3c Poly (250m drums)": "11kV 3c 95mm Poly (250m drums)",
-    "11kv Cable 185mm 3c Poly (250m drums)": "11kV 3c 185mm Poly (250m drums)",
-    "11kv Cable 300mm 3c Poly (250m drums)": "11kV 3c 300mm Poly (250m drums)",
-    "11kv Cable 95mm 1c Poly (250m drums)": "11kV 1c 95mm Poly (250m drums)",
-    "11kv Cable 185mm 1c Poly (250m drums)": "11kV 1c 185mm Poly (250m drums)",
-    "11kv Cable 300mm 1c Poly (250m drums)": "11kV 1c 300mm Poly (250m drums)",
-    "11kV Marker Tape (40m roll)": "11kV Marker Tape (40m roll)"
-}
 
 # --- Transformer Mappings ---
 transformer_keys = {
@@ -440,89 +629,32 @@ conductor_keys = {
     "Horse - 70mm² ACSR bare": "Horse 70mm²",
     "Dog - 100mm² ACSR bare (1000m drums)": "Dog 100mm²",
     "Dingo - 150mm² ACSR bare (1000m drums)": "Dingo 150mm²",
-    # Copper
-    "Hard Drawn Copper 16mm² ( 3/2.65mm ) (500m drums)": "Copper 16mm²",
-    "Hard Drawn Copper 32mm² ( 3/3.75mm ) (1000m drums)": "Copper 32mm²",
-    "Hard Drawn Copper 70mm² (500m drums)": "Copper 70mm²",
-    "Hard Drawn Copper 100mm² (500m drums)": "Copper 100mm²",
-    # PVC covered
-    "35mm² Copper (Green / Yellow PVC covered) (50m drums)": "Copper 35mm² GY PVC",
-    "70mm² Copper (Green / Yellow PVC covered) (50m drums)": "Copper 70mm² GY PVC",
-    "35mm² Copper (Blue PVC covered) (50m drums)": "Copper 35mm² Blue PVC",
-    "70mm² Copper (Blue PVC covered) (50m drums)": "Copper 70mm² Blue PVC",
-    # Double insulated
-    "35mm² Double Insulated (Brown) (50m drums)": "Double Insulated 35mm² Brown",
-    "35mm² Double Insulated (Blue) (50m drums)": "Double Insulated 35mm² Blue",
-    "70mm² Double Insulated (Brown) (50m drums)": "Double Insulated 70mm² Brown",
-    "70mm² Double Insulated (Blue) (50m drums)": "Double Insulated 70mm² Blue",
-    "120mm² Double Insulated (Brown) (50m drums)": "Double Insulated 120mm² Brown",
-    "120mm² Double Insulated (Blue) (50m drums)": "Double Insulated 120mm² Blue"
 }
 
     # LV cables per meter
 conductor_2_keys = {
-    "LV Cable 1ph 4mm Concentric (250m drums)": "LV 1ph 4mm Concentric",
-    "LV Cable 1ph 25mm CNE (250m drums)": "LV 1ph 25mm CNE",
-    "LV Cable 1ph 25mm SNE (100m drums)": "LV 1ph 25mm SNE",
-    "LV Cable 1ph 35mm CNE (250m drums)": "LV 1ph 35mm CNE",
-    "LV Cable 1ph 35mm SNE (100m drums)": "LV 1ph 35mm SNE",
-    "LV Cable 3ph 35mm Cu Split Con (250m drums)": "LV 3ph 35mm Cu Split Con",
-    "LV Cable 3ph 35mm SNE (250m drums)": "LV 3ph 35mm SNE",
-    "LV Cable 3ph 35mm CNE (250m drums)": "LV 3ph 35mm CNE",
-    "LV Cable 3ph 35mm CNE Al (LSOH) (250m drums)": "LV 3ph 35mm CNE Al LSOH",
-    "LV Cable 3c 95mm W/F (250m drums)": "LV 3c 95mm W/F",
-    "LV Cable 3c 185mm W/F (250m drums)": "LV 3c 185mm W/F",
-    "LV Cable 3c 300mm W/F (250m drums)": "LV 3c 300mm W/F",
-    "LV Cable 4c 95mm W/F (250m drums)": "LV 4c 95mm W/F",
-    "LV Cable 4c 185mm W/F (250m drums)": "LV 4c 185mm W/F",
-    "LV Cable 4c 240mm W/F (250m drums)": "LV 4c 240mm W/F",
-    "LV Marker Tape (365m roll)": "LV Marker Tape",
-    # 11kV
-    "11kv Cable 95mm 3c Poly (250m drums)": "11kV 3c 95mm Poly",
-    "11kv Cable 185mm 3c Poly (250m drums)": "11kV 3c 185mm Poly",
-    "11kv Cable 300mm 3c Poly (250m drums)": "11kV 3c 300mm Poly",
-    "11kv Cable 95mm 1c Poly (250m drums)": "11kV 1c 95mm Poly",
-    "11kv Cable 185mm 1c Poly (250m drums)": "11kV 1c 185mm Poly",
-    "11kv Cable 300mm 1c Poly (250m drums)": "11kV 1c 300mm Poly",
-    "11kV Marker Tape (40m roll)": "11kV Marker Tape"
+    "ABC 2 core x 35mm² + 25mm² bare earth (250m drums)": "ABC 2 core x 35mm² + 25mm² bare earth (250m drums)",
+    "ABC 4 core x 35mm² + 25mm² bare earth (250m drums)": "ABC 4 core x 35mm² + 25mm² bare earth (250m drums)",
+    "ABC 2 core x 35mm² (250m drums)": "ABC 2 core x 50mm² (250m drums)",
+    "ABC 2 core x 50mm² (250m drums)": "ABC 2 core x 50mm² (250m drums)",
+    "ABC 2 core x 95mm² + 50mm² bare earth  (300m drums)": "ABC 2 core x 95mm² + 50mm² bare earth  (300m drums)",
+    "ABC 4 core x 35mm² (250m drums)": "ABC 4 core x 35mm² (250m drums)",
+    "ABC 4 core x 50mm² (250m drums)": "ABC 4 core x 50mm² (250m drums)",
+    "ABC 4 core x 95mm² (250m drums)": "ABC 4 core x 95mm² (250m drums)",
+    "ABC 2 core x 50mm² + 50mm² bare earth  (300m drums)": "ABC 2 core x 50mm² + 50mm² bare earth  (300m drums)",
+    "ABC 4 core x 50mm² + 50mm² bare earth  (300m drums)": "ABC 4 core x 50mm² + 50mm² bare earth  (300m drums)",
+    "ABC 4 core x 95mm² + 50mm² bare earth (300m drums)": "ABC 4 core x 95mm² + 50mm² bare earth (300m drums)",
+    "ABC 2 core x 95mm² + 50mm² bare earth  (300m drums)": "ABC 2 core x 95mm² + 50mm² bare earth  (300m drums)",
 }
 
 
 equipment_keys = {
     "Noja": "Noja",
+    "0.5 kVa Tx for Noja": "0.5 kVa Tx for Noja",
     "11kV PMSW (Soule)": "11kV PMSW (Soule)",
     "11kv ABSW Hookstick Standard": "11kv ABSW Hookstick Standard",
     "11kv ABSW Hookstick Spring loaded mech": "11kv ABSW Hookstick Spring loaded mech",
     "33kv ABSW Hookstick Dependant": "33kv ABSW Hookstick Dependant",
-    "100A LV Fuse JPU 82.5mm": "100A LV Fuse JPU 82.5mm",
-    "160A LV Fuse JPU 82.5mm": "160A LV Fuse JPU 82.5mm",
-    "200A LV Fuse JPU 82.5mm": "200A LV Fuse JPU 82.5mm",
-    "315A LV Fuse JPU 82.5mm": "315A LV Fuse JPU 82.5mm",
-    "400A LV Fuse JPU 82.5mm": "400A LV Fuse JPU 82.5mm",
-    "200A LV Fuse JSU 92mm": "200A LV Fuse JSU 92mm",
-    "315A LV Fuse JSU 92mm": "315A LV Fuse JSU 92mm",
-    "400A LV Fuse JSU 92mm": "400A LV Fuse JSU 92mm",
-    "100A LV Fuse - Porcelain screw-in": "100A LV Fuse - Porcelain screw-in",
-    "160A LV Fuse - Porcelain screw-in": "160A LV Fuse - Porcelain screw-in",
-    "200A LV Fuse - Porcelain screw-in": "200A LV Fuse - Porcelain screw-in",
-    "Single Phase cut out kit 100A Henley Series 7": "Single Phase cut out kit 100A Henley Series 7",
-    "Single Phase SNE Sealing Chamber": "Single Phase SNE Sealing Chamber",
-    "Three Phase cut out kit 100A Henley Series 7": "Three Phase cut out kit 100A Henley Series 7",
-    "Three Phase 200A Cut out": "Three Phase 200A Cut out",
-    "Earth Connector Block 100A 5 Way": "Earth Connector Block 100A 5 Way",
-    "Cut out Fuse (MF) 60A": "Cut out Fuse (MF) 60A",
-    "Cut out Fuse (MF) 80A": "Cut out Fuse (MF) 80A",
-    "Cut out Fuse (MF) 100A": "Cut out Fuse (MF) 100A",
-    "Temporary Meter seal white plastic (100)": "Temporary Meter seal white plastic (100)",
-    "Meter seals for use with sealing pliers (100)": "Meter seals for use with sealing pliers (100)",
-    "Meter sealing wire 200mm long (each)": "Meter sealing wire 200mm long (each)",
-    "ABC 1PH & 3PH TERM BOX": "ABC 1PH & 3PH TERM BOX",
-    "SINGLE PHASE FUSED ABC BOX": "SINGLE PHASE FUSED ABC BOX",
-    "1PH & 3PH FUSED SERV WALL BOX": "1PH & 3PH FUSED SERV WALL BOX",
-    "25mm Galvanised Conduit": "25mm Galvanised Conduit",
-    "25mm Galvanised Conduit saddles": "25mm Galvanised Conduit saddles",
-    "Street Lighting Cut out CNE": "Street Lighting Cut out CNE",
-    "Street Lighting Cut out SNE": "Street Lighting Cut out SNE",
     "11KV FUSE UNIT - C-TYPE": "11KV FUSE UNIT - C-TYPE",
     "11KV SOLID LINK - C-TYPE": "11KV SOLID LINK - C-TYPE",
     "11KV OHL ASL C-TYPE RESET 20A 2 SHOT": "11KV OHL ASL C-TYPE RESET 20A 2 SHOT",
@@ -558,217 +690,41 @@ equipment_keys = {
     "11KV OHL FUSE ELEMENT DJP-TYPE 30A": "11KV OHL FUSE ELEMENT DJP-TYPE 30A",
     "11KV OHL FUSE ELEMENT DJP-TYPE 40A": "11KV OHL FUSE ELEMENT DJP-TYPE 40A",
     "11KV OHL FUSE ELEMENT DJP-TYPE 50A": "11KV OHL FUSE ELEMENT DJP-TYPE 50A",
-    "0.5 kVa Tx for Noja": "0.5 kVa Tx for Noja",
-    "Military Cable for Noja": "Military Cable for Noja",
-    "Antenna for Soule or Noja": "Antenna for Soule or Noja",
-    "Bracket for antenna": "Bracket for antenna",
-    "Coax cable (5m)": "Coax cable (5m)",
-    "Antenna for Soule or Noja": "Antenna for Soule or Noja",
-    "Bracket for antenna": "Bracket for antenna",
-    "Coax cable (5m)": "Coax cable (5m)",
 }
 
-insulator_keys = {
-    "11kV Pin Insulator; Polymeric": "11kV Pin Insulator; Polymeric",
-    "11kV Pin Insulator; Polymeric; High Creepage": "11kV Pin Insulator; Polymeric; High Creepage",
-    "33kV Pin Insulator; Porcelain": "33kV Pin Insulator; Porcelain",
-    "33kV Post Insulator; Polymeric; Clamp Top Plate": "33kV Post Insulator; Polymeric; Clamp Top Plate",
-    "36kV Composite Post Groove Top": "36kV Composite Post Groove Top",
-    "11kV Tension Insulator; Polymeric (70kN)": "11kV Tension Insulator; Polymeric (70kN)",
-    "33kV Tension Insulator; Polymeric (70kN)": "33kV Tension Insulator; Polymeric (70kN)",
-    "36kV Composite Tension Ball/Socket Fitting (125 kN)": "36kV Composite Tension Ball/Socket Fitting (125 kN)",
-    "LV / 11kV Stay Insulator": "LV / 11kV Stay Insulator",
-    "33kV Stay Insulator": "33kV Stay Insulator",
-    "LV Insulator Bobbin Type": "LV Insulator Bobbin Type",
-    "LV Insulator Coachscrew Type": "LV Insulator Coachscrew Type"
-}
-
-
-lv_joint_kit_keys = {
-    "LVKIT/001": "LVKIT/001 Straight Jt Kit 35mm 1ph CNE/SNE Plastic",
-    "LVKIT/002": "LVKIT/002 Straight Jt Kit 35mm 1ph CNE/SNE Pilc",
-    "LVKIT/003": "LVKIT/003 Straight Jt Kit 35mm 3ph CNE/SNE Plastic",
-    "LVKIT/004": "LVKIT/004 Staight Jt 3ph 35mm XLPE to 4-35 PILC",
-    "LVKIT/005": "LVKIT/005 LV Service Cable Stop End",
-    "LVKIT/006": "LVKIT/006 LV Service off a service 4-35mm 1/3 phase CNE/SNE",
-    "LVKIT/007": "LVKIT/007 LV Service off a service 4-35mm PILC 1ph CNE/SNE",
-    "LVKIT/008": "LVKIT/008 Service Pole Term to OHL 1PH CNE",
-    "LVKIT/009": "LVKIT/009 Service Pole Term to OHL 1PH SNE",
-    "LVKIT/010": "LVKIT/010 Service Pole Term to OHL 3PH 35mm",
-    "LVKIT/011": "LVKIT/011 Service Pole Term to Fuses 1PH CNE",
-    "LVKIT/012": "LVKIT/012 Service Pole Term to Fuses 1PH SNE",
-    "LVKIT/013": "LVKIT/013 Service Pole Term to Fuses 3PH 35mm",
-    "LVKIT/014": "LVKIT/014 Service Breech Joint 70-185mm 3c W/F - CNE/SNE",
-    "LVKIT/015": "LVKIT/015 Service Breech Joint 240-300mm 3c W/F - CNE/SNE",
-    "LVKIT/016": "LVKIT/016 Service Breech Joint 50-95mm PILC - CNE/SNE",
-    "LVKIT/017": "LVKIT/017 Service Breech Joint 95-185mm PILC - CNE/SNE",
-    "LVKIT/018": "LVKIT/018 Service Breech Joint 185-300mm PILC - CNE/SNE",
-    "LVKIT/019": "LVKIT/019 Straight Joint up to 95mm 3c W/F / PILC",
-    "LVKIT/020": "LVKIT/020 Straight Joint 185mm 3c W/F / PILC / CONSAC",
-    "LVKIT/021": "LVKIT/021 Straight Joint 300mm 3c W/F / PILC / CONSAC",
-    "LVKIT/022": "LVKIT/022 Mains Breech Joint 70-95mm 3c W/F",
-    "LVKIT/023": "LVKIT/023 Mains Breech Joint 185mm 3c W/F",
-    "LVKIT/024": "LVKIT/024 Mains Breech Joint 240/300mm 3c W/F",
-    "LVKIT/025": "LVKIT/025 Mains Breech Joint 70-95mm W/F / 50-95mm PILC",
-    "LVKIT/026": "LVKIT/026 Mains Breech Joint 185mm W/F / 95-185mm PILC",
-    "LVKIT/027": "LVKIT/027 Mains Breech Joint 240/300mm W/F / 185-300mm PILC",
-    "LVKIT/028": "LVKIT/028 Loop / V Joint 50-95mm W/F / PILC",
-    "LVKIT/029": "LVKIT/029 Loop / V Joint >95-300mm W/F / PILC",
-    "LVKIT/030": "LVKIT/030 Y / 3 Loose end Joint 50-185mm W/F / PILC / Districable",
-    "LVKIT/031": "LVKIT/031 Y / 3 Loose end Joint 185-300mm W/F / PILC / Districable",
-    "LVKIT/032": "LVKIT/032 Stop End 70-95mm W/F / CONSAC",
-    "LVKIT/033": "LVKIT/033 Stop End 185-300mm W/F / CONSAC",
-    "LVKIT/034": "LVKIT/034 Stop End 50-95mm PILC",
-    "LVKIT/035": "LVKIT/035 Stop End 95-300mm PILC",
-    "LVKIT/037": "LVKIT/037 Pole Term to OHL 70-95mm W/F",
-    "LVKIT/038": "LVKIT/038 Pole Term to OHL 185mm W/F",
-    "LVKIT/039": "LVKIT/039 Pole Term to Fuses 70-95mm W/F",
-    "LVKIT/040": "LVKIT/040 Pole Term to Fuses 185mm W/F"
-}
-
-
-lv_joint_module_keys = {
-    "LVMOD/001": "LVMOD/001 Armour bond module for PILC Service cable Stop Ends",
-    "LVMOD/002": "LVMOD/002 Branch connector module for service cables",
-    "LVMOD/003": "LVMOD/003 Phase connector remake module for service cables",
-    "LVMOD/004": "LVMOD/004 XL Brass tunnel connector module for old PILC concentric cables",
-    "LVMOD/005": "LVMOD/005 Insulated insulating piercing mains/service branch connector module (up to 185mm2)",
-    "LVMOD/006": "LVMOD/006 Insulated insulating piercing mains/service branch connector module (240-300mm2)",
-    "LVMOD/007": "LVMOD/007 Brass neutral earth connector module",
-    "LVMOD/008": "LVMOD/008 CONSAC Brass neutral earth connector module",
-    "LVMOD/009": "LVMOD/009 95mm2 straight type channel connector module",
-    "LVMOD/011": "LVMOD/011 185mm2 straight type channel connector module",
-    "LVMOD/013": "LVMOD/013 300mm2 straight type channel connector module",
-    "LVMOD/015": "LVMOD/015 95mm2 branch type channel connector module",
-    "LVMOD/017": "LVMOD/017 185mm2 branch type channel connector module",
-    "LVMOD/018": "LVMOD/018 185mm2 branch type channel connector c/w brass non-shear bolts module",
-    "LVMOD/019": "LVMOD/019 300mm2 branch type channel connector module",
-    "LVMOD/021": "LVMOD/021 95mm2 1/2 length branch type connector module",
-    "LVMOD/022": "LVMOD/022 300mm2 1/2 length branch type connector module",
-    "LVMOD/023": "LVMOD/023 95mm2 Service Bridge Piece module",
-    "LVMOD/024": "LVMOD/024 185mm2 Service Bridge Piece module",
-    "LVMOD/025": "LVMOD/025 300mm2 Service Bridge Piece module",
-    "LVMOD/026": "LVMOD/026 upto 35mm2 PILC service cable Earth Bond Kit module",
-    "LVMOD/027": "LVMOD/027 50-95mm2 PILC Mains cable Earth Bond Kit module",
-    "LVMOD/028": "LVMOD/028 >95-185mm2 PILC Mains cable Earth Bond Kit module",
-    "LVMOD/029": "LVMOD/029 >185-300mm2 PILC Mains cable Earth Bond Kit module",
-    "LVMOD/030": "LVMOD/030 Torque Limiting shear-off device module",
-    "LVMOD/031": "LVMOD/031 95mm2 Aluminium mechanical shear-off lug module",
-    "LVMOD/032": "LVMOD/032 185mm2 Aluminium mechanical shear-off lug module",
-    "LVMOD/033": "LVMOD/033 300mm2 Aluminium mechanical shear-off lug module",
-    "LVMOD/034": "LVMOD/034 480-740mm2 range taking Aluminium mechanical shear-off lug module",
-    "LVMOD/035": "LVMOD/035 95mm2 Aluminium mechanical shear-off Busbar connector module",
-    "LVMOD/036": "LVMOD/036 185mm2 Aluminium mechanical shear-off Busbar connector module",
-    "LVMOD/037": "LVMOD/037 300mm2 Aluminium mechanical shear-off Busbar connector module",
-    "LVMOD/038": "LVMOD/038 70-95mm2 pole termination module kit for 4c overhead lines and fuses",
-    "LVMOD/039": "LVMOD/039 185mm pole termination module kit for 4c overhead lines and fuses",
-    "LVMOD/040": "LVMOD/040 35-70mm2 Brass shear off lug module",
-    "LVMOD/041": "LVMOD/041 60-120mm2 Brass shear off lug module"
-}
-
-hv_joint_termination_keys = {
-    "11kv XLPE 3c Straight joint": "11kV XLPE 3c Straight Joint",
-    "11kV 95mm XLPE trif joint": "11kV 95mm XLPE Trifurcating Joint",
-    "11kV 185 - 300mm XLPE Trif joint": "11kV 185-300mm XLPE Trifurcating Joint",
-    "11kV up to 70mm PILC/PICAS to XLPE Joint": "11kV PILC/PICAS to XLPE Joint (up to 70mm)",
-    "11kV 95-185 PILC/PICAS to XLPE Joint": "11kV PILC/PICAS to XLPE Joint (95-185mm)",
-    "11kV 185-300 PILC/PICAS to XLPE Joint": "11kV PILC/PICAS to XLPE Joint (185-300mm)",
-    "11kV 95-185 XLPE to up to 70mm PILC/PICAS Transition Trif Joint": "11kV XLPE to PILC/PICAS Transition Trif Joint (95-185mm to 70mm)",
-    "11kV 95-185 XLPE to 95-185 PILC/PICAS Transition Trif Joint": "11kV XLPE to PILC/PICAS Transition Trif Joint (95-185mm)",
-    "11kV 185-300 XLPE to 185-300 PILC/PICAS Transition Trif Joint": "11kV XLPE to PILC/PICAS Transition Trif Joint (185-300mm)",
-    "11kV Earthing kit for CORAL cables": "11kV Earthing Kit for CORAL Cables",
-    "11kV Earthing kit for 50-300mm PILC cables": "11kV Earthing Kit for PILC Cables (50-300mm)",
-    "11kV Earthing kit for up to 50mm PILC cables": "11kV Earthing Kit for PILC Cables (up to 50mm)",
-    "11kV Build up kit for PILC / CORAL cables": "11kV Build Up Kit for PILC/CORAL Cables",
-    "11kV Build up kit for XLPE cables": "11kV Build Up Kit for XLPE Cables",
-    "11kV 95/185mm module for PAPER to PAPER joint": "11kV Paper to Paper Joint Module (95/185mm)",
-    "11kV 300mm module for PAPER to PAPER joint": "11kV Paper to Paper Joint Module (300mm)",
-    "11kV pole Term 1c 95mm": "11kV Pole Termination 1c 95mm",
-    "11kV pole Term 1c 185/300mm": "11kV Pole Termination 1c 185/300mm",
-    "11kV pole Term 3c 95mm": "11kV Pole Termination 3c 95mm",
-    "11kV pole Term 3c 185/300mm": "11kV Pole Termination 3c 185/300mm",
-    "OUTDR TERMN POLE STEELWORK 11 KV": "11kV Outdoor Pole Termination Steelwork",
-    "11kV 95mm cable clamp for crucifix": "11kV Cable Clamp for Crucifix (95mm)",
-    "11kV 185mm cable clamp for crucifix": "11kV Cable Clamp for Crucifix (185mm)",
-    "11kV Surge Arrestor (Each)": "11kV Surge Arrestor",
-    "33kv Joint Transition Trif (H-Type)": "33kV Joint Transition Trifurcating (H-Type)",
-    "33kv Joint Trif (HSL-Type)": "33kV Joint Trifurcating (HSL-Type)",
-    "33kv Joint 0.1 sq inch connectors (3 phases)": "33kV Joint Connectors 0.1 sq inch",
-    "33kv Joint 0.4/0.5 sq inch connector (per phase)": "33kV Joint Connector 0.4/0.5 sq inch",
-    "33kv Joint Connectors for Trif 150/300 Pilc": "33kV Joint Connectors for Trifurcating 150/300 PILC",
-    "33kv Joint Straight up to 240mm (per phase)": "33kV Straight Joint (up to 240mm)",
-    "33kv Joint Straight over 240mm needs connector (per phase)": "33kV Straight Joint (over 240mm)",
-    "33kv Joint 400mm connector (each)": "33kV Joint Connector 400mm",
-    "33kv Joint Transition 150/240mm to 0.3 PILC (per phase)": "33kV Joint Transition 150/240mm to 0.3 PILC",
-    "11/33kv Pot End module up to 300mm (3 phases)": "11/33kV Pot End Module (up to 300mm)",
-    "33kV Pole Term 1c 150-240mm (3 phase set)": "33kV Pole Termination 1c 150-240mm",
-    "33kV Pole Term 1c 400-630mm (3 phase set)": "33kV Pole Termination 1c 400-630mm",
-    "33kV Cable cleats for pole terms": "33kV Cable Cleats for Pole Terminations",
-    "33kV Surge Arrestor 36kV (Each)": "33kV Surge Arrestor 36kV"
-}
-
-cable_accessory_keys = {
-    "End cap up to 17mm diameter (25(1))": "End cap up to 17mm diameter (25(1))",
-    "End cap 17-30mm dia(35(3))": "End cap 17-30mm dia(35(3))",
-    "End Cap 30-45mm dia (95 LV or HV)": "End Cap 30-45mm dia (95 LV or HV)",
-    "End Cap 45-95mm dia (185-300 LV or HV)": "End Cap 45-95mm dia (185-300 LV or HV)",
-    "Ducting 32mm (OD 38mm) per metre (100m coil)": "Ducting 32mm (OD 38mm) per metre (100m coil)",
-    "Ducting 50mm (OD 58mm) per metre (50m coil)": "Ducting 50mm (OD 58mm) per metre (50m coil)",
-    "Ducting 100mm (3m Length) (90 in pallet)": "Ducting 100mm (3m Length) (90 in pallet)",
-    "Ducting bend (100mm / 11.25 degree)": "Ducting bend (100mm / 11.25 degree)",
-    "Ducting bend (100mm / 22.5 degree)": "Ducting bend (100mm / 22.5 degree)",
-    "Ducting bend (100mm / 45 degree)": "Ducting bend (100mm / 45 degree)",
-    "Ducting 150mm (3m Length) (39 in pallet)": "Ducting 150mm (3m Length) (39 in pallet)",
-    "Ducting bend (150mm / 11.25 degree)": "Ducting bend (150mm / 11.25 degree)",
-    "Ducting bend (150mm / 22.5 degree)": "Ducting bend (150mm / 22.5 degree)",
-    "Ducting bend (150mm / 45 degree)": "Ducting bend (150mm / 45 degree)",
-    "Resin 2 litre JEM Permanent": "Resin 2 litre JEM Permanent",
-    "Resin 6 litre JEM Permanent": "Resin 6 litre JEM Permanent"
-}
-
-foundation_steelwork_keys = {
-    "H' Pole Foundation Brace Steelwork for P6.010mm Centres ( Ref. SP4017651 )": "H' Pole Foundation Brace Steelwork for P6.010mm Centres ( Ref. SP4017651 )",
-    "'H' Pole Foundation Brace Steelwork for 2500mm Centres ( Ref. SP4017652 )": "'H' Pole Foundation Brace Steelwork for 2500mm Centres ( Ref. SP4017652 )",
-    "Stay / Foundation Block Type 1; 850mm as SP4019020": "Stay / Foundation Block Type 1; 850mm as SP4019020",
-    "Stay / Foundation Block Type 2; 1300mm as SP4019020": "Stay / Foundation Block Type 2; 1300mm as SP4019020",
-    "Foundation Block Type 3; 1500mm as SP4019020": "Foundation Block Type 3; 1500mm as SP4019020"
-}
 
 summary_items = [
     "Erect Single HV/EHV Pole, up to and including 12 metre pole.",
-    "Erect Section Structure 'H' HV/EHV Pole, up to and including 12 metre pole.",
-    "Erect LV Structure Single Pole, up to and including 12 metre pole.",
-    "Recover single pole, up to and including 15 metres in height, and reinstate, all ground conditions.",
-    "Recover 'A' / 'H' pole, up to and including 15 metres in height, and reinstate, all ground conditions.",
+    "Erect Section Structure 'H' HV/EHV Pole, up to and including 12 metre pole",
+    "Erect LV Structure Single Pole, up to and including 12 metre pole",
+    "Recover single pole, up to and including 15 metres in height, and reinstate, all ground conditions",
+    "Recover 'A' / 'H' pole, up to and including 15 metres in height, and reinstate, all ground conditions",
     "Erect 11kV/33kV ABSW.",
-    "Erect 11kV Remote Controlled Switch Disconnector (Soule Auguste) or Auto Reclosure unit c/w VT, Aerial, RTU & umbilical cable.",
-    "Erect pole mounted transformer up to 100kVA 1.ph.",
-    "Erect pole mounted transformer up to 200kVA 3.p.h.",
-    "Remove pole mounted transformer.",
-    "Remove platform mounted or 'H' pole mounted transformer.",
-    "Remove 11kV/33kV ABSW.",
-    "Remove Auto Reclosure.",
-    "Install bare conductor, run out, sag, terminate, bind in and connect jumpers; <100mm².",
-    "Install bare conductor, run out, sag, terminate, bind in and connect jumpers; >=100mm² <200mm².",
-    "Install conductor, run out, sag, terminate, clamp in and connect jumpers; 2c + Earth.",
-    "Install conductor, run out, sag, terminate, clamp in and connect jumpers; 4c + Earth.",
-    "Install service span including connection to mainline & building / structure."
+    "Remove 11kV/33kV ABSW",
+    "Noja"
+    "0.5 kVa Tx for Noja"
+    "11kV PMSW (Soule)"
+    "Remove Auto Reclosure",
+    "Erect pole mounted transformer up to 100kVA 1.ph",
+    "Erect pole mounted transformer up to 200kVA 3.p.h",
+    "Remove pole mounted transformer",
+    "Remove platform mounted or 'H' pole mounted transformer",
+    "Install bare conductor, run out, sag, terminate, bind in and connect jumpers; <100mm²",
+    "Install bare conductor, run out, sag, terminate, bind in and connect jumpers; >=100mm² <200mm²",
+    "Install conductor, run out, sag, terminate, clamp in and connect jumpers; 2c + Earth",
+    "Install conductor, run out, sag, terminate, clamp in and connect jumpers; 4c + Earth",
+    "Install service span including connection to mainline & building / structure",
+    "Erect 3.ph fuse units at single tee off pole or in line pole"
+    "Remove 1.ph or 3.ph HV fuses",    
 ]
 
 categories = [
-    ("Poles 🪵", pole_keys, "Quantity"),
     ("Poles _erected 🪵", pole_erected_keys, "Quantity"),
     ("Poles _replaced 🪵", poles_replaced_keys, "Quantity"),
     ("Transformers ⚡🏭", transformer_keys, "Quantity"),
     ("Conductors", conductor_keys, "Length (Km)"),
     ("Conductors_2", conductor_2_keys, "Length (Km)"),
     ("Equipment", equipment_keys, "Quantity"),
-    ("Insulators", insulator_keys, "Quantity"),
-    ("LV Joints (Kits)", lv_joint_kit_keys, "Quantity"),
-    ("LV Joint Modules", lv_joint_module_keys, "Quantity"),
-    ("HV Joints / Terminations ⚡", hv_joint_termination_keys, "Quantity"),
-    ("Cable Accessories 🔌", cable_accessory_keys, "Quantity"),
-    ("Foundation & Steelwork 🏗️", foundation_steelwork_keys, "Quantity")
 ]
 
 column_rename_map = {
@@ -784,7 +740,7 @@ column_rename_map = {
 }
 
 export_columns = [
-    'Output', 'item', 'Quantity_original','Quantity_used', 'material_code','type', 'pole', 'Date',
+    'Output','comment', 'item', 'Quantity_original','Quantity_used', 'material_code','type', 'pole', 'Date',
     'District', 'project', 'Project Manager', 'Circuit', 'Segment',
     'team lider', 'PID', 'sourcefile'
 ]
@@ -820,18 +776,52 @@ st.markdown("<h1>📊 Data Management Dashboard</h1>", unsafe_allow_html=True)
 # -------------------------------
 # --- Upload Aggregated Parquet file ---
 # --- Load aggregated Parquet file ---
+# -------------------------------
+# App Header
+# -------------------------------
 st.header("Upload Data Files")
 
-aggregated_file = st.file_uploader(
+# -------------------------------
+# Load Aggregated Parquet
+# -------------------------------
+master_file = st.file_uploader(
     "Upload Master.parquet",
     type=["parquet"],
     key="master"
 )
 
+resume_file = st.file_uploader(
+    "Upload CF_resume.parquet",
+    type=["parquet"],
+    key="resume_file"
+)
+resume_df = None
+
+if resume_file is not None:
+    resume_df = pd.read_parquet(resume_file)
+    resume_df.columns = resume_df.columns.str.strip().str.lower()
+
+misc_file = st.file_uploader(
+    "Upload miscellaneous.parquet",
+    type=["parquet"],
+    key="misc_file"
+)
+misc_df = None
+
+if misc_file is not None:
+    try:
+        misc_df = pd.read_parquet(misc_file)
+        misc_df.columns = misc_df.columns.str.strip().str.lower()
+    except Exception as e:
+        st.warning(f"Could not load Miscellaneous parquet: {e}")
+
+base_df = None
+st.header("Upload Data Files")
+
 agg_view = None
 
-if aggregated_file is not None:
-    df = pd.read_parquet(aggregated_file)
+if master_file is not None:
+    df = pd.read_parquet(master_file)
     df.columns = df.columns.str.strip().str.lower()  # normalize columns
 
     if 'datetouse' in df.columns:
@@ -845,95 +835,129 @@ if aggregated_file is not None:
 
     agg_view = df.copy()
 
-# --- Load Resume Parquet file (for %Complete pie chart) ---
-resume_file = st.file_uploader(
-    "Upload CF_resume.parquet",
-    type=["parquet"],
-    key="resume"
+# -------------------------------
+# Date Source Selector
+# -------------------------------
+date_source = st.sidebar.radio(
+    "Select Date Source",
+    ["Planned + Done (datetouse)", "Done Only (done)"]
 )
 
-resume_df = None
+# -------------------------------
+# --- Team Filter (GLOBAL) ---
+# -------------------------------
+base_df = None
 
-if resume_file is not None:
-    resume_df = pd.read_parquet(resume_file)
-    resume_df.columns = resume_df.columns.str.strip().str.lower()
+if master_file:
+    base_df = pd.read_parquet(master_file)
+    base_df.columns = base_df.columns.str.strip().str.lower()
 
-# --- Load Miscellaneous Parquet file ---
-misc_file = st.file_uploader(
-    "Upload miscelaneous.parquet",
-    type=["parquet"],
-    key="misc"
+    # Normalize date
+    if date_source == "Planned + Done (datetouse)":
+        if 'datetouse' in base_df.columns:
+            base_df['datetouse_dt'] = pd.to_datetime(base_df['datetouse'], errors='coerce').dt.normalize()
+        else:
+            base_df['datetouse_dt'] = pd.NaT
+    elif date_source == "Done Only (done)":
+        if 'done' in base_df.columns:
+            base_df['datetouse_dt'] = pd.to_datetime(base_df['done'], errors='coerce').dt.normalize()
+        else:
+            base_df['datetouse_dt'] = pd.NaT
+
+    # Normalize numeric columns
+    for col in ['total', 'orig']:
+        if col in base_df.columns:
+            base_df[col] = (
+                base_df[col]
+                .astype(str)
+                .str.replace(" ", "")
+                .str.replace(",", ".", regex=False)
+            )
+            base_df[col] = pd.to_numeric(base_df[col], errors='coerce')
+
+# Stop early if no data
+if base_df is None:
+    st.info("Please upload Master.parquet to continue.")
+    st.stop()
+
+# -------------------------------
+# Sidebar Filters
+# -------------------------------
+st.sidebar.header("Filter Options")
+
+def multiselect_filter(df, column, label):
+    if column not in df.columns:
+        return ["All"], df
+    options = ["All"] + sorted(df[column].dropna().astype(str).unique())
+    selected = st.sidebar.multiselect(label, options, default=["All"])
+    if "All" not in selected:
+        df = df[df[column].astype(str).isin(selected)]
+    return selected, df
+
+filtered_df = base_df.copy()
+
+selected_shire, filtered_df = multiselect_filter(filtered_df, 'shire', "Select Shire")
+selected_project, filtered_df = multiselect_filter(filtered_df, 'project', "Select Project")
+selected_pm, filtered_df = multiselect_filter(filtered_df, 'projectmanager', "Select Project Manager")
+selected_segment, filtered_df = multiselect_filter(filtered_df, 'segmentcode', "Select Segment Code")
+selected_pole, filtered_df = multiselect_filter(filtered_df, 'pole', "Select Pole")
+selected_type, filtered_df = multiselect_filter(filtered_df, 'type', "Select Type")
+selected_team, filtered_df = multiselect_filter(filtered_df, 'team_name', "Select Team")
+
+
+# -------------------------------
+# Date Filter
+# -------------------------------
+filter_type = st.sidebar.selectbox(
+    "Filter by Date",
+    ["Single Day", "Week", "Month", "Year", "Custom Range", "Unplanned"]
 )
 
-misc_df = None
+date_range_str = ""
+filtered_df['datetouse_dt'] = pd.to_datetime(filtered_df['datetouse_dt'])
 
-if misc_file is not None:
-    try:
-        misc_df = pd.read_parquet(misc_file)
-        misc_df.columns = misc_df.columns.str.strip().str.lower()
-    except Exception as e:
-        st.warning(f"Could not load Miscellaneous parquet: {e}")
+if filter_type == "Unplanned":
+    filtered_df = filtered_df[filtered_df['datetouse_dt'].isna()]
+    date_range_str = "Unplanned"
 
-    # -------------------------------
-    # --- Sidebar Filters ---
-    # -------------------------------
-    st.sidebar.header("Filter Options")
+else:
+    filtered_df = filtered_df[filtered_df['datetouse_dt'].notna()]
 
-    def multi_select_filter(col_name, label, df, parent_filter=None):
-        """Helper for multiselect filter, handles 'All' selection."""
-        if col_name not in df.columns:
-            return ["All"], df
-        temp_df = df.copy()
-        if parent_filter is not None and "All" not in parent_filter[1]:
-            temp_df = temp_df[temp_df[parent_filter[0]].isin(parent_filter[1])]
-        options = ["All"] + sorted(temp_df[col_name].dropna().unique())
-        selected = st.sidebar.multiselect(label, options, default=["All"])
-        if "All" not in selected:
-            temp_df = temp_df[temp_df[col_name].isin(selected)]
-        return selected, temp_df
+    if filter_type == "Single Day":
+        d = st.sidebar.date_input("Select date")
+        filtered_df = filtered_df[filtered_df['datetouse_dt'] == pd.Timestamp(d)]
+        date_range_str = str(d)
 
-    selected_shire, filtered_df = multi_select_filter('shire', "Select Shire", df)
-    selected_project, filtered_df = multi_select_filter('project', "Select Project", filtered_df,
-                                                        parent_filter=('shire', selected_shire))
-    selected_pm, filtered_df = multi_select_filter('projectmanager', "Select Project Manager", filtered_df,
-                                                   parent_filter=('shire', selected_shire))
-    selected_segment, filtered_df = multi_select_filter('segmentcode', "Select Segment Code", filtered_df)
-    selected_type, filtered_df = multi_select_filter('type', "Select Type", filtered_df)
+    elif filter_type == "Week":
+        start = pd.Timestamp(st.sidebar.date_input("Week start"))
+        end = start + pd.Timedelta(days=6)
+        filtered_df = filtered_df[
+            (filtered_df['datetouse_dt'] >= start) &
+            (filtered_df['datetouse_dt'] <= end)
+        ]
+        date_range_str = f"{start} → {end}"
 
-    # -------------------------------
-    # --- Date Filter ---
-    # -------------------------------
-    filter_type = st.sidebar.selectbox("Filter by Date", ["Single Day", "Week", "Month", "Year", "Custom Range", "Unplanned"])
-    date_range_str = ""
-    if 'datetouse' in filtered_df.columns:
-        if filter_type == "Single Day":
-            date_selected = st.sidebar.date_input("Select date")
-            filtered_df = filtered_df[filtered_df['datetouse'] == pd.Timestamp(date_selected)]
-            date_range_str = str(date_selected)
-        elif filter_type == "Week":
-            week_start = st.sidebar.date_input("Week start date")
-            week_end = week_start + pd.Timedelta(days=6)
-            filtered_df = filtered_df[(filtered_df['datetouse'] >= pd.Timestamp(week_start)) &
-                                      (filtered_df['datetouse'] <= pd.Timestamp(week_end))]
-            date_range_str = f"{week_start} to {week_end}"
-        elif filter_type == "Month":
-            month_selected = st.sidebar.date_input("Pick any date in month")
-            filtered_df = filtered_df[(filtered_df['datetouse'].dt.month == month_selected.month) &
-                                      (filtered_df['datetouse'].dt.year == month_selected.year)]
-            date_range_str = month_selected.strftime("%B %Y")
-        elif filter_type == "Year":
-            year_selected = st.sidebar.number_input("Select year", min_value=2000, max_value=2100, value=2025)
-            filtered_df = filtered_df[filtered_df['datetouse'].dt.year == year_selected]
-            date_range_str = str(year_selected)
-        elif filter_type == "Custom Range":
-            start_date = st.sidebar.date_input("Start date")
-            end_date = st.sidebar.date_input("End date")
-            filtered_df = filtered_df[(filtered_df['datetouse'] >= pd.Timestamp(start_date)) &
-                                      (filtered_df['datetouse'] <= pd.Timestamp(end_date))]
-            date_range_str = f"{start_date} to {end_date}"
-        elif filter_type == "Unplanned":
-            filtered_df = filtered_df[filtered_df['datetouse'].isna()]
-            date_range_str = "Unplanned"
+    elif filter_type == "Month":
+        d = st.sidebar.date_input("Pick any date in month")
+        filtered_df = filtered_df[
+            (filtered_df['datetouse_dt'].dt.month == d.month) &
+            (filtered_df['datetouse_dt'].dt.year == d.year)
+        ]
+        date_range_str = d.strftime("%B %Y")
+
+    elif filter_type == "Year":
+        y = st.sidebar.number_input("Year", 2000, 2100, 2025)
+        filtered_df = filtered_df[filtered_df['datetouse_dt'].dt.year == y]
+        date_range_str = str(y)
+
+    elif filter_type == "Custom Range":
+        start = pd.Timestamp(st.sidebar.date_input("Start date"))
+        end = pd.Timestamp(st.sidebar.date_input("End date"))
+        filtered_df = filtered_df[
+            (filtered_df['datetouse_dt'] >= start) &
+            (filtered_df['datetouse_dt'] <= end)
+        ]
+        date_range_str = f"{start} → {end}"
 
     # -------------------------------
     # --- Total & Variation Display ---
@@ -984,73 +1008,475 @@ if misc_file is not None:
         )
     except Exception as e:
         st.warning(f"Could not display Total & Variation: {e}")
+# -------------------------------
+# Revenue Over Time
+# -------------------------------
+
+general_summary = pd.DataFrame(
+    columns=["Description", "Total Quantity", "Comment"]
+)
+if not filtered_df.empty and 'datetouse_dt' in filtered_df.columns and 'total' in filtered_df.columns:
+    # Aggregate revenue per date
+    revenue_df = (
+        filtered_df
+        .dropna(subset=['datetouse_dt'])
+        .groupby('datetouse_dt', as_index=False)['total']
+        .sum()
+        .sort_values('datetouse_dt')
+    )
+
+    # Ensure datetime column
+    revenue_df['datetouse_dt'] = pd.to_datetime(revenue_df['datetouse_dt'])
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+
+    # Scatter points (all data)
+    fig.add_trace(go.Scattergl(
+        x=revenue_df['datetouse_dt'],
+        y=revenue_df['total'],
+        mode='markers',
+        marker=dict(size=8, color='#FFA500'),
+        name='Revenue'
+    ))
+
+    # Dashed line connecting points
+    fig.add_trace(go.Scatter(
+        x=revenue_df['datetouse_dt'],
+        y=revenue_df['total'],
+        mode='lines',
+        line=dict(dash='dash', color='#FFA500'),
+        name='Trend'
+    ))
+
+    # Layout with horizontal gridlines
+    fig.update_layout(
+        height=500,
+        xaxis_title="Date",
+        yaxis_title="Revenue (£)",
+        hovermode="x unified",
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='white'),
+        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.2)', zeroline=False)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("No data for selected filters.")
+
+if filtered_df is not None and not filtered_df.empty:
+    buffer_agg = BytesIO()
+
+    with pd.ExcelWriter(buffer_agg, engine="openpyxl") as writer:
+
+        # ---- Prepare export_df ----
+        export_df = filtered_df.copy()
+        export_df = export_df.rename(columns=column_rename_map)
+
+        if "done" in export_df.columns:
+            export_df["done"] = pd.to_datetime(export_df["done"], errors="coerce")
+            export_df["done_display"] = export_df["done"].dt.strftime("%d/%m/%Y")
+            export_df.loc[export_df["done"].isna(), "done"] = "Unplanned"
+
+        cols_to_include = [
+            "item","comment", "Quantity_original", "Quantity_used", "material_code",
+            "type", "pole", "datetouse_dt", "District", "project",
+            "Project Manager", "Circuit", "Segment",
+            "team lider","total", "PID", "sourcefile"
+        ]
+        cols_to_include = [c for c in cols_to_include if c in export_df.columns]
+        export_df = export_df[cols_to_include]
+
+        # ---- Output sheet (start below images) ----
+        export_df.to_excel(writer, sheet_name="Output", index=False, startrow=1)
+        ws = writer.book["Output"]
+
+        # ---- Summary sheet ----
+        if "Quantity_used" in export_df.columns:
+
+            # Ensure numeric
+            export_df["Quantity_used"] = pd.to_numeric(export_df["Quantity_used"], errors="coerce").fillna(0)
+
+            # Normalize items
+            export_df["item_norm"] = export_df["item"].apply(normalize_item)
+
+            # Normalize key lists
+            erect_norm = [normalize_item(i) for i in pole_erected_keys]
+            recover_norm = [normalize_item(i) for i in poles_replaced_keys]
+            conductor_hv_norm = [normalize_item(i) for i in conductor_keys]
+            conductor_lv_norm = [normalize_item(i) for i in conductor_2_keys]
+
+            # Transformer mappings
+            tx_1ph_keys = [
+                normalize_item("Transformer 1ph 50kVA"),
+                normalize_item("Transformer 1ph 100kVA"),
+                normalize_item("Transformer 1ph 25kVA"),
+            ]
+
+            tx_3ph_keys = [
+                normalize_item("Transformer 3ph 50kVA"),
+                normalize_item("Transformer 3ph 200kVA"),
+                normalize_item("Transformer 3ph 100kVA"),
+            ]
+
+            # --- Build summary per project ---
+            summary_rows = []
+
+            for project, df_proj in export_df.groupby("project"):
+
+                # ERECT POLES
+                erect_poles = df_proj[df_proj["item_norm"].isin(erect_norm)]["Quantity_used"].sum()
+
+                # RECOVER POLES
+                recover_poles = df_proj[df_proj["item_norm"].isin(recover_norm)]["Quantity_used"].sum()
+
+                # POLES REFURB (not erect and not recover, but pole-related)
+                pole_series = df_proj["pole"].dropna().astype(str).str.strip()
+                # Unique poles in project
+                all_poles_set = set(pole_series)
+
+                # Poles used in Erect
+                erect_poles_set = set(
+                    df_proj[df_proj["item_norm"].isin(erect_norm)]["pole"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                )
+
+                # Poles used in Recover
+                recover_poles_set = set(
+                    df_proj[df_proj["item_norm"].isin(recover_norm)]["pole"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                )
+
+                # Poles Refurb = poles NOT in Erect nor Recover
+                refurb_poles_set = all_poles_set - erect_poles_set - recover_poles_set
+                poles_refurb = len(refurb_poles_set)
+
+                # TRANSFORMERS
+                pte_1ph = df_proj[df_proj["item_norm"].isin(tx_1ph_keys)]["Quantity_used"].sum()
+                pte_3ph = df_proj[df_proj["item_norm"].isin(tx_3ph_keys)]["Quantity_used"].sum()
+
+                # CONDUCTORS
+                conductor_hv = df_proj[df_proj["item_norm"].isin(conductor_hv_norm)]["Quantity_used"].sum()
+                conductor_lv = df_proj[df_proj["item_norm"].isin(conductor_lv_norm)]["Quantity_used"].sum()
+                # --- NEW TASK COLUMNS ---
+                noja_keys = [normalize_item("Noja"), normalize_item("0.5 kVa Tx for Noja")]
+                soule_keys = [normalize_item("11kV PMSW (Soule)")]
+                absw_keys = [
+                    normalize_item("11kv ABSW Hookstick Standard"),
+                    normalize_item("11kv ABSW Hookstick Spring loaded mech"),
+                    normalize_item("33kv ABSW Hookstick Dependant")
+                ]
+                fuse_11kv_keys = [
+                    normalize_item("Erect 3.ph fuse units at single tee off pole or in line pole."),
+                    normalize_item("Erect 1.ph fuse units at single tee off pole or in line pole.")
+                ]
+
+                noja_sum = df_proj[df_proj["item_norm"].isin(noja_keys)]["Quantity_used"].sum()
+                soule_sum = df_proj[df_proj["item_norm"].isin(soule_keys)]["Quantity_used"].sum()
+                absw_sum = df_proj[df_proj["item_norm"].isin(absw_keys)]["Quantity_used"].sum()
+                fuse_11kv_sum = df_proj[df_proj["item_norm"].isin(fuse_11kv_keys)]["Quantity_used"].sum()
+
+                # VALUE (if exists)
+                if "total" in df_proj.columns:
+                    total_value = pd.to_numeric(df_proj["total"], errors="coerce").fillna(0).sum()
+                else:
+                    total_value = 0
+
+                summary_rows.append({
+                    "Project": project,
+                    "Erect Poles": erect_poles,
+                    "Recover Poles": recover_poles,
+                    "Poles Refurb": poles_refurb,
+                    "PTE Installed 1ph": pte_1ph,
+                    "PTE Installed 3ph": pte_3ph,
+                    "Conductor HV Installed (Km)": conductor_hv,
+                    "Conductor LV Installed (Km)": conductor_lv,
+                    "Noja": noja_sum,
+                    "Soule": soule_sum,
+                    "ABSW": absw_sum,
+                    "11 kV fuse": fuse_11kv_sum,
+                    "Total Value (£)": total_value
+                })
+
+            # Create DataFrame
+            final_summary = pd.DataFrame(summary_rows)
+
+            # Sort by project
+            final_summary = final_summary.sort_values("Project")
+
+            # Write to Excel
+            # --- Add Total Row ---
+            total_row = final_summary.select_dtypes(include='number').sum().to_dict()
+            total_row["Project"] = "Total"  # Label for the total row
+
+            # Append total row
+            final_summary = pd.concat([final_summary, pd.DataFrame([total_row])], ignore_index=True)
+            final_summary.to_excel(writer, sheet_name="Summary", index=False, startrow=1)
+            ws_summary = writer.book["Summary"]
+
+
+        # ---- Breakdown sheets per summary column ----
+            breakdown_columns = {
+                "Erect Poles": erect_norm,
+                "Recover Poles": recover_norm,
+                "Poles Refurb": None,  # Special logic
+                "PTE Installed 1ph": tx_1ph_keys,
+                "PTE Installed 3ph": tx_3ph_keys,
+                "Conductor HV Installed (Km)": conductor_hv_norm,
+                "Conductor LV Installed (Km)": conductor_lv_norm,
+                "Noja": noja_keys,
+                "Soule": soule_keys,
+                "ABSW": absw_keys,
+                "11 kV fuse": fuse_11kv_keys,
+            }
+
+            for col_name, keys in breakdown_columns.items():
+                sheet_name = col_name[:31]  # Excel sheet name max 31 chars
+
+                if col_name == "Poles Refurb":
+                    # Poles NOT in Erect or Recover
+                    all_poles_set = set(export_df["pole"].dropna().astype(str).str.strip())
+                    erect_poles_set = set(export_df[export_df["item_norm"].isin(erect_norm)]["pole"].dropna().astype(str).str.strip())
+                    recover_poles_set = set(export_df[export_df["item_norm"].isin(recover_norm)]["pole"].dropna().astype(str).str.strip())
+                    refurb_poles_set = all_poles_set - erect_poles_set - recover_poles_set
+                    df_breakdown = export_df[export_df["pole"].isin(refurb_poles_set)]
+                else:
+                    df_breakdown = export_df[export_df["item_norm"].isin(keys)]
+
+                # Columns to include
+                cols_to_include = [
+                    "item","comment","Quantity_used","material_code","pole","datetouse_dt","done_display",
+                    "District","Project Manager","Circuit","Segment"
+                ]
+                cols_to_include = [c for c in cols_to_include if c in df_breakdown.columns]
+                df_breakdown = df_breakdown[cols_to_include]
+
+                # Write sheet
+                df_breakdown.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+                ws_break = writer.book[sheet_name]
+
+                # ---- Formatting ----
+                ws_break.row_dimensions[1].height = 90  # logo row
+
+                # Logos
+                img1_b = XLImage("Images/GaeltecImage.png")
+                img2_b = XLImage("Images/SPEN.png")
+                IMG_HEIGHT = 120
+                IMG_WIDTH_SMALL = 120
+                IMG_WIDTH_LARGE = IMG_WIDTH_SMALL * 3
+
+                img1_b.width = IMG_WIDTH_SMALL
+                img1_b.height = IMG_HEIGHT
+                img1_b.anchor = "B1"
+
+                img2_b.width = IMG_WIDTH_LARGE
+                img2_b.height = IMG_HEIGHT
+                img2_b.anchor = "A1"
+
+                ws_break.add_image(img1_b)
+                ws_break.add_image(img2_b)
+
+                # Header style
+                header_font = Font(bold=True, size=16)
+                header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+                thin_side = Side(style="thin")
+                medium_side = Side(style="medium")
+                thick_side = Side(style="thick")
+                light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+                white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+                max_col = ws_break.max_column
+                max_row = ws_break.max_row
+
+                # HEADER → ROW 2
+                for col_idx, cell in enumerate(ws_break[2], start=1):
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    ws_break.column_dimensions[get_column_letter(col_idx)].width = 60 if col_idx == 1 else 20
+                    cell.border = Border(
+                        left=thick_side if col_idx == 1 else medium_side,
+                        right=thick_side if col_idx == max_col else medium_side,
+                        top=thick_side,
+                        bottom=thick_side
+                    )
+
+                # DATA ROWS → START ROW 3
+                for row_idx in range(3, max_row + 1):
+                    fill = light_grey_fill if row_idx % 2 == 1 else white_fill
+                    for col_idx in range(1, max_col + 1):
+                        cell = ws_break.cell(row=row_idx, column=col_idx)
+                        cell.fill = fill
+                        cell.border = Border(
+                            left=thin_side,
+                            right=thin_side,
+                            top=thin_side,
+                            bottom=thin_side
+                        )
+                        
+        # ---- Formatting styles ----
+        header_font = Font(bold=True, size=16)
+        header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
+        thin_side = Side(style="thin")
+        medium_side = Side(style="medium")
+        thick_side = Side(style="thick")
+        light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+        # AFTER ✅
+        for sheet in [ws, ws_summary]:
+            sheet.row_dimensions[1].height = 90   # logo row
+
+        # ---- Load & resize images ----
+        IMG_HEIGHT = 120
+        IMG_WIDTH_SMALL = 120
+        IMG_WIDTH_LARGE = IMG_WIDTH_SMALL * 3  # 🔹 3× wider
+
+        img1 = XLImage("Images/GaeltecImage.png")
+        img2 = XLImage("Images/SPEN.png")
+
+        img1.width = IMG_WIDTH_SMALL
+        img1.height = IMG_HEIGHT
+
+        img2.width = IMG_WIDTH_LARGE
+        img2.height = IMG_HEIGHT
+
+        # Position images (row 1)
+        img1.anchor = "B1"
+        img2.anchor = "A1"
+
+        ws.add_image(img1)
+        ws.add_image(img2)
+
+        # Same for Summary
+        img1_s = XLImage("Images/GaeltecImage.png")
+        img2_s = XLImage("Images/SPEN.png")
+
+        img1_s.width = IMG_WIDTH_SMALL
+        img1_s.height = IMG_HEIGHT
+        img1_s.anchor = "A1"
+
+        img2_s.width = IMG_WIDTH_LARGE
+        img2_s.height = IMG_HEIGHT
+        img2_s.anchor = "B1"
+
+        ws_summary.add_image(img1_s)
+        ws_summary.add_image(img2_s)
+
+
+        # ---- Formatting (unchanged style) ----
+        for sheet in [ws, ws_summary]:
+            max_col = sheet.max_column
+            max_row = sheet.max_row
+
+            # HEADER → ROW 2 ✅
+            for col_idx, cell in enumerate(sheet[2], start=1):
+                cell.font = header_font
+                cell.fill = header_fill
+                sheet.column_dimensions[get_column_letter(col_idx)].width = 60 if col_idx == 1 else 20
+                cell.border = Border(
+                    left=thick_side if col_idx == 1 else medium_side,
+                    right=thick_side if col_idx == max_col else medium_side,
+                    top=thick_side,
+                    bottom=thick_side
+                )
+
+            # DATA ROWS → START ROW 3 ✅
+            for row_idx in range(3, max_row + 1):
+                fill = light_grey_fill if row_idx % 2 == 1 else white_fill
+                for col_idx in range(1, max_col + 1):
+                    cell = sheet.cell(row=row_idx, column=col_idx)
+                    cell.fill = fill
+                    cell.border = Border(
+                        left=thin_side,
+                        right=thin_side,
+                        top=thin_side,
+                        bottom=thin_side
+                    )
+
+    # ---- Download button ----
+    buffer_agg.seek(0)
+    st.download_button(
+        label="📥 Download Excel (Output Details)",
+        data=buffer_agg,
+        file_name="Gaeltec_Output.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+else:
+    st.info("Project or Segment Code columns not found in the data.")
+
+# -------------------------------
+# Jobs per Team per Day
+# -------------------------------
+if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
+    team_df = (
+        filtered_df
+        .dropna(subset=['datetouse_dt', 'team_name'])
+        .groupby(['datetouse_dt', 'team_name'], as_index=False)['total']
+        .sum()
+    )
+
+    fig_team = px.line(
+        team_df,
+        x='datetouse_dt',
+        y='total',
+        color='team_name',
+        markers=True,
+        title="Jobs per Team per Day"
+    )
+    st.plotly_chart(fig_team, use_container_width=True)
+
+
     # -------------------------------
-    # --- Revenue Chart (Full Width) ---
+    # Revenue per Project (Excel Export)
     # -------------------------------
-    st.markdown("<h3 style='text-align:center; color:white;'>Revenue</h3>", unsafe_allow_html=True)
-    try:
-        if 'filtered_df' in locals() and not filtered_df.empty and 'total' in filtered_df.columns:
+    if not filtered_df.empty and 'project' in filtered_df.columns and 'total' in filtered_df.columns:
+        revenue_per_project = (
+            filtered_df
+            .groupby('project', as_index=False)['total']
+            .sum()
+            .sort_values('total', ascending=False)
+       )
 
-            chart_df = filtered_df[filtered_df['datetouse_dt'].notna()].copy()
-            chart_df = chart_df[chart_df['datetouse_dt'] >= '2000-01-01']
-            chart_df['total'] = pd.to_numeric(chart_df['total'], errors='coerce')
-            chart_df = chart_df[chart_df['total'].notna()]
+        revenue_per_project.rename(
+            columns={'total': 'Revenue (£)'},
+            inplace=True
+        )
+    else:
+        revenue_per_project = pd.DataFrame()
+    
+    if not filtered_df.empty and 'team_name' in filtered_df.columns and 'total' in filtered_df.columns:
+        revenue_per_team = (
+            filtered_df
+            .groupby('team_name', as_index=False)['total']
+            .sum()
+            .sort_values('total', ascending=False)
+        )
 
-            if not chart_df.empty:
-                revenue_by_date = chart_df.groupby('datetouse_dt')['total'].sum().reset_index()
-                revenue_by_date = revenue_by_date.sort_values('datetouse_dt')
-                revenue_by_date['total_formatted'] = revenue_by_date['total'].apply(
-                    lambda x: f"£{x:,.0f}" if x >= 1000 else f"€{x:.0f}"
-                )
+        revenue_per_team.rename(
+            columns={'team_name': 'Team', 'total': 'Revenue (£)'},
+            inplace=True
+        )
+    else:
+        revenue_per_team = pd.DataFrame()
 
-                fig_revenue = px.line(
-                    revenue_by_date,
-                    x='datetouse_dt',
-                    y='total',
-                    title="Daily Revenue",
-                    labels={'datetouse_dt': 'Date', 'total': 'Revenue (£)'}
-                )
-                fig_revenue.update_traces(
-                    mode='lines+markers',
-                    line=dict(width=3, color='#32CD32'),
-                    marker=dict(size=6, color='#32CD32'),
-                    hovertemplate='<b>Date: %{x}</b><br>Revenue: £%{y:,.0f}<extra></extra>'
-                )
-                fig_revenue.update_layout(
-                    height=600,  # taller chart
-                    xaxis=dict(
-                        tickformatstops=[
-                            dict(dtickrange=[None, 1000*60*60*24*30], value="%d %b %Y"),
-                            dict(dtickrange=[1000*60*60*24*30, None], value="%b %Y")
-                        ],
-                        tickangle=45,
-                        gridcolor='rgba(128,128,128,0.2)',
-                        rangeslider=dict(visible=True),
-                        type='date'
-                    ),
-                    yaxis=dict(
-                        title='Revenue (£)',
-                        tickformat=",.0f",
-                        gridcolor='rgba(128,128,128,0.2)',
-                        autorange=True,
-                        fixedrange=False  # <-- allow dynamic scaling on zoom
-                    ),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='white'),
-                    title_font_size=16,
-                    hovermode='x unified'
-                )
-
-                st.plotly_chart(fig_revenue, use_container_width=True)
-            else:
-                st.info("No projects with dates since 2000 for selected filters.")
-        else:
-            st.info("No data available for the selected filters.")
-
-    except Exception as e:
-        st.warning(f"Could not generate revenue chart: {e}")
-                
+    if not revenue_per_project.empty or not revenue_per_team.empty:
+        excel_file = to_excel(revenue_per_project, revenue_per_team)
+        st.download_button(
+            label="📥 Download Revenue Summary (Excel)",
+            data=excel_file,
+            file_name=f"revenue_summary_{date_range_str}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.info("No revenue data available for export.")
+    
     # Display Project and completion
     col_top_left, col_top_right = st.columns([1, 1])
     # Project Completion
@@ -1135,153 +1561,21 @@ if misc_file is not None:
             else:
                 st.info("Project or Segment Code columns not found in the data.")
 
+    # -----------------------------
+    # Streamlit download button
+    # -----------------------------
 
-if filtered_df is not None and not filtered_df.empty:
-    buffer_agg = BytesIO()
-
-    with pd.ExcelWriter(buffer_agg, engine='openpyxl') as writer:
-        # ---- Prepare export_df ----
-        export_df = filtered_df.copy()
-        export_df = export_df.rename(columns=column_rename_map)
-
-        # Format dates
-        if 'datetouse' in export_df.columns:
-            export_df['datetouse_display'] = pd.to_datetime(
-                export_df['datetouse'], errors='coerce'
-            ).dt.strftime("%d/%m/%Y")
-            export_df.loc[export_df['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
-
-        # Select only columns that exist
-        cols_to_include = [
-            'item', 'Quantity_original','Quantity_used', 'material_code', 'type', 'pole', 'Date',
-            'District', 'project', 'Project Manager', 'Circuit', 'Segment',
-            'team lider', 'PID', 'sourcefile'
-        ]
-        cols_to_include = [c for c in cols_to_include if c in export_df.columns]
-        export_df = export_df[cols_to_include]
-
-        # ---- Write Output sheet ----
-        export_df.to_excel(writer, sheet_name='Output', index=False)
-        ws = writer.book['Output']
-
-        # ---- Write Summary sheet ----
-        summary_df = (
-            export_df[export_df['item'].isin(summary_items)]
-            .groupby('item', as_index=False)['Quantity_used']
-            .sum()
+# ---- Streamlit download button ----
+    if 'filtered_df' in locals() and not filtered_df.empty:
+        excel_file = generate_excel_styled_multilevel(
+            filtered_df,
+            poles_df if 'poles_df' in locals() else None)
+        st.download_button(
+            label="📥 High level planning & Poles Excel",
+            data=excel_file,
+            file_name=f"High level planning_{date_range_str}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        summary_df = (
-            pd.DataFrame({'item': summary_items})
-            .merge(summary_df, on='item', how='left')
-            .fillna(0)
-        )
-        summary_df = summary_df.rename(columns={
-            'item': 'Description',
-            'Quantity_used': 'Total Quantity'
-        })
-        summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        ws_summary = writer.book['Summary']
-
-        # ---- Formatting for both sheets ----
-        header_font = Font(bold=True, size=16)
-        header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
-        thin_side = Side(style="thin")
-        medium_side = Side(style="medium")
-        thick_side = Side(style="thick")
-        light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-        white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-
-        for sheet in [ws, ws_summary]:
-            max_col = sheet.max_column
-            max_row = sheet.max_row
-
-            # Header
-            for col_idx, cell in enumerate(sheet[1], start=1):
-                cell.font = header_font
-                cell.fill = header_fill
-                sheet.column_dimensions[get_column_letter(col_idx)].width = 60 if col_idx == 1 else 20
-                cell.border = Border(
-                    left=thick_side if col_idx == 1 else medium_side,
-                    right=thick_side if col_idx == max_col else medium_side,
-                    top=thick_side,
-                    bottom=thick_side
-                )
-
-            # Alternating rows
-            for row_idx in range(2, max_row + 1):
-                fill = light_grey_fill if row_idx % 2 == 0 else white_fill
-                for col_idx in range(1, max_col + 1):
-                    cell = sheet.cell(row=row_idx, column=col_idx)
-                    cell.fill = fill
-                    cell.border = Border(
-                        left=thin_side,
-                        right=thin_side,
-                        top=thin_side,
-                        bottom=thin_side
-                    )
-
-    # ---- Download button (outside 'with') ----
-    buffer_agg.seek(0)
-    st.download_button(
-        label="📥 Download Excel (Output Details)",
-        data=buffer_agg,
-        file_name="Gaeltec_Output.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-else:
-    st.info("Project or Segment Code columns not found in the data.")
-            
-            # --- Pie Chart: % Complete ---
-# -------------------------------
-    # --- Works Complete Pie Chart ---
-    # -------------------------------
-    st.markdown("<h3 style='text-align:center; color:white;'>Works Complete</h3>", unsafe_allow_html=True)
-    try:
-        if 'resume_df' in locals():
-            filtered_segments = filtered_df['segment'].dropna().astype(str).str.strip().str.lower().unique()
-            resume_df['section'] = resume_df['section'].dropna().astype(str).str.strip().str.lower()
-
-            if {'section', '%complete'}.issubset(resume_df.columns):
-                resume_filtered = resume_df[resume_df['section'].isin(filtered_segments)]
-
-                if not resume_filtered.empty:
-                    avg_complete = resume_filtered['%complete'].mean()
-                    avg_complete = min(max(avg_complete, 0), 100)
-
-                    pie_data = pd.DataFrame({
-                        'Status': ['Completed', 'Done or Remaining'],
-                        'Value': [avg_complete, 100 - avg_complete]
-                    })
-
-                    fig_pie = px.pie(
-                        pie_data,
-                        names='Status',
-                        values='Value',
-                        color='Status',
-                        color_discrete_map={'Completed': 'green', 'Done or Remaining': 'red'},
-                        hole=0.6
-                    )
-                    fig_pie.update_traces(
-                        textinfo='percent+label',
-                        textfont_size=20
-                    )
-                    fig_pie.update_layout(
-                        title_text="",
-                        title_font_size=20,
-                        font=dict(color='white'),
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        showlegend=True,
-                        legend=dict(font=dict(color='white'))
-                    )
-
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                else:
-                    st.info("No matching sections found for the selected filters to generate % completion chart.")
-
-    except Exception as e:
-        st.warning(f"Could not generate % Complete pie chart: {e}")
         
     # -------------------------------
     # --- Map Section ---
@@ -1423,19 +1717,12 @@ else:
     convert_to_miles = st.checkbox("Convert Equipment/Conductor Length to Miles")
 
     categories = [
-        ("Poles 🪵", pole_keys, "Quantity"),
         ("Poles _erected 🪵", pole_erected_keys, "Quantity"),
         ("Poles _replaced 🪵", poles_replaced_keys, "Quantity"),
         ("Transformers ⚡🏭", transformer_keys, "Quantity"),
         ("Conductors", conductor_keys, "Length (Km)"),
         ("Conductors_2", conductor_2_keys, "Length (Km)"),
         ("Equipment", equipment_keys, "Quantity"),
-        ("Insulators", insulator_keys, "Quantity"),
-        ("LV Joints (Kits)", lv_joint_kit_keys, "Quantity"),
-        ("LV Joint Modules", lv_joint_module_keys, "Quantity"),
-        ("HV Joints / Terminations ⚡", hv_joint_termination_keys, "Quantity"),
-        ("Cable Accessories 🔌", cable_accessory_keys, "Quantity"),
-        ("Foundation & Steelwork 🏗️", foundation_steelwork_keys, "Quantity")
     ]
 
     def sanitize_sheet_name(name: str) -> str:
@@ -1476,7 +1763,11 @@ else:
 
         # Divide Conductors_2 by 1000
         if cat_name == "Conductors_2":
-            bar_data['Total'] = bar_data['Total'] / 1000
+            bar_data['Total'] = bar_data['Total']
+
+        # Divide Conductors_2 by 1000
+        if cat_name == "Conductors":
+            bar_data['Total'] = bar_data['Total']
 
         # Convert conductor units if needed
         y_axis_label = y_label
@@ -1609,9 +1900,8 @@ else:
                     df_bar = sub_df[sub_df['mapped'] == bar_value].copy()
                     df_bar = df_bar.loc[:, ~df_bar.columns.duplicated()]
                     if 'datetouse' in df_bar.columns:
-                        df_bar['datetouse_display'] = pd.to_datetime(
-                            df_bar['datetouse'], errors='coerce'
-                        ).dt.strftime("%d/%m/%Y")
+                        df_bar['datetouse_display'] = pd.to_datetime(df_bar['datetouse'], errors='coerce')
+                        df_bar['datetouse_display'] = df_bar['datetouse'].dt.strftime("%d/%m/%Y")
                         df_bar.loc[df_bar['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
                     # 🔥 Rename columns BEFORE selecting
@@ -1626,50 +1916,72 @@ else:
                 aggregated_df.to_excel(writer, sheet_name='Aggregated', index=False)
                 # Access the worksheet
                 ws = writer.book['Aggregated']
+                ws.insert_rows(1)
                 # ---- Header style ----
+                # ---- Formatting styles ----
                 header_font = Font(bold=True, size=16)
                 header_fill = PatternFill(start_color="00CCFF", end_color="00CCFF", fill_type="solid")
-                # ---- Border styles ----
                 thin_side = Side(style="thin")
                 medium_side = Side(style="medium")
                 thick_side = Side(style="thick")
-                for col_idx, cell in enumerate(ws[1], start=1):
-                    cell.font = header_font
-                    cell.fill = header_fill
-
-                    # Optional: auto-adjust column width
-                    column_letter = get_column_letter(col_idx)
-                    ws.column_dimensions[column_letter].width = 20
-
-                # ---- Alternating row colors ----
                 light_grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
                 white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 
-                for row_idx in range(2, ws.max_row + 1):  # start after header
-                    fill = light_grey_fill if row_idx % 2 == 0 else white_fill
-                    for col_idx in range(1, ws.max_column + 1):
-                        ws.cell(row=row_idx, column=col_idx).fill = fill
+                # AFTER ✅
+                for sheet in [ws]:
+                    sheet.row_dimensions[1].height = 90   # logo row
 
-                max_col = ws.max_column
+                # ---- Load & resize images ----
+                IMG_HEIGHT = 120
+                IMG_WIDTH_SMALL = 120
+                IMG_WIDTH_LARGE = IMG_WIDTH_SMALL * 3  # 🔹 3× wider
 
-                for col_idx in range(1, max_col + 1):
-                    cell = ws.cell(row=1, column=col_idx)
+                img1 = XLImage("Images/GaeltecImage.png")
+                img2 = XLImage("Images/SPEN.png")
 
-                    cell.border = Border(
-                        left=thick_side if col_idx == 1 else medium_side,
-                        right=thick_side if col_idx == max_col else medium_side,
-                        top=thick_side,
-                        bottom=thick_side
-                    )
+                img1.width = IMG_WIDTH_SMALL
+                img1.height = IMG_HEIGHT
 
-                for row_idx in range(2, ws.max_row + 1):
-                    for col_idx in range(1, max_col + 1):
-                        cell = ws.cell(row=row_idx, column=col_idx)
+                img2.width = IMG_WIDTH_LARGE
+                img2.height = IMG_HEIGHT
 
+                # Position images (row 1)
+                img1.anchor = "B1"
+                img2.anchor = "A1"
+
+                ws.add_image(img1)
+                ws.add_image(img2)
+
+
+                # ---- Formatting (unchanged style) ----
+                for sheet in [ws]:
+                    max_col = sheet.max_column
+                    max_row = sheet.max_row
+
+                    # HEADER → ROW 2 ✅
+                    for col_idx, cell in enumerate(sheet[2], start=1):
+                        cell.font = header_font
+                        cell.fill = header_fill
+                        sheet.column_dimensions[get_column_letter(col_idx)].width = 60 if col_idx == 1 else 20
                         cell.border = Border(
-                            left=thin_side if col_idx == 1 else thin_side,
-                            right=thin_side
+                            left=thick_side if col_idx == 1 else medium_side,
+                            right=thick_side if col_idx == max_col else medium_side,
+                            top=thick_side,
+                            bottom=thick_side
                         )
+
+                    # DATA ROWS → START ROW 3 ✅
+                    for row_idx in range(3, max_row + 1):
+                        fill = light_grey_fill if row_idx % 2 == 1 else white_fill
+                        for col_idx in range(1, max_col + 1):
+                            cell = sheet.cell(row=row_idx, column=col_idx)
+                            cell.fill = fill
+                            cell.border = Border(
+                                left=thin_side,
+                                right=thin_side,
+                                top=thin_side,
+                                bottom=thin_side
+                            )
 
             buffer_agg.seek(0)
             st.download_button(
@@ -1688,7 +2000,7 @@ else:
                     if 'datetouse' in df_bar.columns:
                         df_bar['datetouse_display'] = pd.to_datetime(
                             df_bar['datetouse'], errors='coerce'
-                        ).dt.strftime("%d/%m/%Y")
+                        )
                         df_bar.loc[df_bar['datetouse'].isna(), 'datetouse_display'] = "Unplanned"
 
                     cols_to_include = ['mapped', 'datetouse_display','qsub'] + extra_cols
@@ -1706,7 +2018,6 @@ else:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-
 # -----------------------------
 # 🛠️ Works Section
 # -----------------------------
@@ -1717,10 +2028,10 @@ if misc_df is not None:
     # Data preparation
     # -----------------------------
     filtered_df['item'] = filtered_df['item'].astype(str)
-    misc_df['column_b'] = misc_df['column_b'].astype(str)
+    misc_df['column_1'] = misc_df['column_1'].astype(str)
 
     # Map items to work instructions
-    item_to_column_i = misc_df.set_index('column_b')['column_i'].to_dict()
+    item_to_column_i = misc_df.set_index('column_1')['column_2'].to_dict()
     poles_df = filtered_df[filtered_df['pole'].notna() & (filtered_df['pole'].astype(str).str.lower() != "nan")].copy()
     poles_df['Work instructions'] = poles_df['item'].map(item_to_column_i)
 
@@ -1796,67 +2107,6 @@ if misc_df is not None:
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
-# -----------------------------
-# 📈 Jobs per Team per Day (Segment + Pole aware)
-# -----------------------------
-st.subheader("📈 Jobs per Team per Day")
-
-if agg_view is not None and 'total' in agg_view.columns:
-    filtered_agg = agg_view.copy()
-
-    # Apply segment filter
-    if selected_segment != 'All' and 'segmentcode' in filtered_agg.columns:
-        filtered_agg = filtered_agg[
-            filtered_agg['segmentcode'].astype(str).str.strip() == str(selected_segment).strip()
-        ]
-
-    # Apply pole filter
-    if selected_pole != "All" and 'pole' in filtered_agg.columns:
-        filtered_agg = filtered_agg[
-            filtered_agg['pole'].astype(str).str.strip() == str(selected_pole).strip()
-        ]
-
-    # Ensure datetime column
-    if 'datetouse_dt' not in filtered_agg.columns:
-        filtered_agg['datetouse_dt'] = pd.to_datetime(filtered_agg['datetouse'], errors='coerce')
-    else:
-        filtered_agg['datetouse_dt'] = pd.to_datetime(filtered_agg['datetouse_dt'], errors='coerce')
-
-    # Ensure 'total' is numeric
-    filtered_agg['total'] = pd.to_numeric(filtered_agg['total'], errors='coerce').fillna(0)
-
-    # Drop invalid rows
-    filtered_agg = filtered_agg.dropna(subset=['datetouse_dt', 'team_name'])
-
-    if not filtered_agg.empty:
-        # Aggregate per day per team
-        time_df = filtered_agg.groupby(['datetouse_dt', 'team_name'], as_index=False)['total'].sum()
-
-        # Plot line chart
-        fig_time = px.line(
-            time_df,
-            x='datetouse_dt',
-            y='total',
-            color='team_name',
-            markers=True,
-            hover_data={'datetouse_dt': True, 'team_name': True, 'total': True}
-        )
-        fig_time.update_layout(
-            xaxis_title="Day",
-            yaxis_title="Total Jobs £",
-            xaxis=dict(
-                tickformat="%d/%m/%Y",
-                tickangle=45,
-                nticks=10,
-                tickmode='auto',
-            ),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            legend_title_text="Team",
-            height=500
-        )
-        st.plotly_chart(fig_time, use_container_width=True)
-    else:
-        st.info("No time-based data available for the selected filters.")
-else:
-    st.info("No 'total' column found in aggregated data.")
+general_summary = pd.DataFrame(
+    columns=["Description", "Total Quantity", "Comment"]
+)
