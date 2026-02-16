@@ -1651,65 +1651,6 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
             else:
                 st.info("No matching regions found for the selected filters.")
 
-
-    with col_desc:
-        st.markdown("<h3 style='color:white;'>Weather</h3>", unsafe_allow_html=True)
-        
-        # --- Scottish Weather Widget ---
-        try:
-            # Get API key from secrets
-            api_key = st.secrets.get("d4d09fcf1373f72c30b970fb20d51fd9")
-            
-            if not api_key:
-                st.info("Weather API key not configured")
-            else:
-                # Location selector
-                location = st.selectbox(
-                    "Select Location",
-                    ["Ayrshire", "Lanarkshire", "Glasgow", "Edinburgh"],
-                    index=0,
-                    key="weather_location"
-                )
-                
-                if st.button("Refresh Weather", key="refresh_weather"):
-                    st.rerun()
-                
-                # Get current weather
-                weather_data = get_scottish_weather(api_key, location)
-                
-                if weather_data:
-                    # Display weather information
-                    temp = weather_data['main']['temp']
-                    feels_like = weather_data['main']['feels_like']
-                    humidity = weather_data['main']['humidity']
-                    wind_speed = weather_data['wind']['speed']
-                    description = weather_data['weather'][0]['description'].title()
-                    icon_code = weather_data['weather'][0]['icon']
-                    
-                    # Weather icon and description
-                    col_icon, col_desc = st.columns([1, 2])
-                    with col_icon:
-                        st.image(f"http://openweathermap.org/img/wn/{icon_code}@2x.png", width=50)
-                    with col_desc:
-                        st.write(f"**{description}**")
-                    
-                    # Weather metrics
-                    st.metric("Temperature", f"{temp}°C", f"Feels like {feels_like}°C")
-                    st.metric("Humidity", f"{humidity}%")
-                    st.metric("Wind Speed", f"{wind_speed} m/s")
-                    
-                    # Construction impact assessment
-                    st.markdown("---")
-                    st.markdown("**Construction Impact:**")
-                    impact = assess_construction_impact(weather_data)
-                    st.write(impact)
-                else:
-                    st.error("Failed to fetch weather data")
-                    
-        except Exception as e:
-            st.warning(f"Could not load weather information: {e}")
-
-
 # -------------------------------
 # --- Mapping Bar Charts + Drill-down + Excel Export ---
 # -------------------------------
