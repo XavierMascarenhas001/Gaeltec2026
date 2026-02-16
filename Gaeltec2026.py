@@ -1592,8 +1592,8 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
             gdf_list = [gpd.read_file(file) for file in file_list]
             combined_gdf = gpd.GeoDataFrame(pd.concat(gdf_list, ignore_index=True), crs=gdf_list[0].crs)
 
-            if "location_map" in filtered_df.columns:
-                active_regions = filtered_df["location_map"].dropna().unique().tolist()
+            if "region" in filtered_df.columns:
+                active_regions = filtered_df["region"].dropna().unique().tolist()
                 wards_to_select = []
                 for region in active_regions:
                     if region in mapping_region:
