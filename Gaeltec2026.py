@@ -1537,19 +1537,26 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
         
         with col_left_top:
             st.markdown("<h3 style='color:white;'>Projects & Segments Overview</h3>", unsafe_allow_html=True)
+            required_cols = ['project', 'segmentcode', 'location_map']
+            existing_cols = [c for c in required_cols if c in filtered_df.columns]
 
-            if 'project' in filtered_df.columns and 'segmentcode' in filtered_df.columns:
+            if 'project' in existing_cols:
                 projects = filtered_df['project'].dropna().unique()
                 if len(projects) == 0:
                     st.info("No projects found for the selected filters.")
                 else:
                     for proj in sorted(projects):
-                        proj_df = filtered_df[filtered_df['project'] == proj][['segmentcode', 'location_map']]
-                        segments = proj_df.dropna().drop_duplicates()
+                        cols_to_use = [c for c in ['segmentcode', 'location_map'] if c in filtered_df.columns]
+                        if not cols_to_use:
+                            segments = pd.DataFrame()
+                        else:
+                            proj_df = filtered_df[filtered_df['project'] == proj][cols_to_use]
+                            segments = proj_df.dropna().drop_duplicates()
                     
                         # Use expander to make segment list scrollable
                         with st.expander(f"Project: {proj} ({len(segments)} segments)"):
-                            if len(segments) > 0:
+                            if not segments.empty:
+                                display_text = segments.astype(str).agg(" | ".join, axis=1)
                                 # Scrollable container for segments
                                 st.markdown(
                                     "<div style='max-height:150px; overflow-y:auto; padding:5px; border:1px solid #444;'>"
