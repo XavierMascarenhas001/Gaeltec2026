@@ -408,12 +408,12 @@ def generate_excel_styled_multilevel(filtered_df, poles_df=None):
     ws_summary = wb.create_sheet(title="Poles Summary")
     if poles_df is not None and not poles_df.empty:
         poles_summary = (
-            poles_df[['shire','project','location_map','segmentcode','pole']]
+            poles_df[['shire','project','segmentcode','pole']]
             .drop_duplicates()
             .groupby(['shire','project','segmentcode'], as_index=False)
             .agg({'pole': lambda x: ', '.join(sorted(x.astype(str)))})
         )
-        poles_summary.rename(columns={'pole':'Poles','location_map', 'segmentcode':'Segment'}, inplace=True)
+        poles_summary.rename(columns={'pole':'Poles', 'segmentcode':'Segment'}, inplace=True)
 
         # Write multi-level headers (Row 2-4)
         headers = ['Shire','Project','Segment','location_map','Poles']
