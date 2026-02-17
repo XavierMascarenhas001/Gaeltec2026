@@ -741,7 +741,7 @@ column_rename_map = {
 
 export_columns = [
     'Output','comment', 'item', 'Quantity_original','Quantity_used', 'material_code','type', 'pole', 'Date',
-    'District', 'project', 'Project Manager', 'Circuit', 'Segment',
+    'District', 'project', 'Project Manager','location_map', 'Circuit', 'Segment',
     'team lider', 'PID', 'sourcefile'
 ]
 
