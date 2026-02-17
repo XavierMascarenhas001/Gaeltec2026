@@ -1545,7 +1545,6 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
                 else:
                     for proj in sorted(projects):
                         proj_df = filtered_df[filtered_df['project'] == proj]['segmentcode'].dropna().unique()
-                        segments = proj_df[['segmentcode', 'location_map']].dropna().drop_duplicates()
                     
                         # Use expander to make segment list scrollable
                         with st.expander(f"Project: {proj} ({len(segments)} segments)"):
