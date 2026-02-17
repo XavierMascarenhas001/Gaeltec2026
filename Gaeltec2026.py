@@ -381,15 +381,16 @@ def generate_excel_styled_multilevel(filtered_df, poles_df=None):
     ws.title = "Daily Revenue"
 
     # ---- Sheet 1: Daily Revenue ----
-    if {'shire', 'project', 'segmentcode', 'projectmanager', 'datetouse_dt','done', 'total'}.issubset(filtered_df.columns):
+    if {'shire', 'project','location_map', 'segmentcode', 'projectmanager', 'datetouse_dt','done', 'total'}.issubset(filtered_df.columns):
         daily_df = (
             filtered_df
-            .groupby(['datetouse_dt','shire','project','segmentcode','projectmanager'], as_index=False)
+            .groupby(['datetouse_dt','shire','project','location_map','segmentcode','projectmanager'], as_index=False)
             .agg({'total':'sum'})
         )
         daily_df.rename(columns={
             'datetouse_dt':'Date',
             'total':'Revenue (£)',
+            'location_map':'location',
             'segmentcode':'Segment',
             'projectmanager':'Project Manager'
         }, inplace=True)
@@ -407,15 +408,15 @@ def generate_excel_styled_multilevel(filtered_df, poles_df=None):
     ws_summary = wb.create_sheet(title="Poles Summary")
     if poles_df is not None and not poles_df.empty:
         poles_summary = (
-            poles_df[['shire','project','segmentcode','pole']]
+            poles_df[['shire','project','location_map','segmentcode','pole']]
             .drop_duplicates()
             .groupby(['shire','project','segmentcode'], as_index=False)
             .agg({'pole': lambda x: ', '.join(sorted(x.astype(str)))})
         )
-        poles_summary.rename(columns={'pole':'Poles', 'segmentcode':'Segment'}, inplace=True)
+        poles_summary.rename(columns={'pole':'Poles','location_map', 'segmentcode':'Segment'}, inplace=True)
 
         # Write multi-level headers (Row 2-4)
-        headers = ['Shire','Project','Segment','Poles']
+        headers = ['Shire','Project','Segment','location_map','Poles']
         for idx, h in enumerate(headers, start=1):
             ws_summary.cell(row=2, column=idx, value=h)  # Shire header
             ws_summary.cell(row=3, column=idx, value=h if h != 'Poles' else '')  # Project header
