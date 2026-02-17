@@ -1083,7 +1083,7 @@ if filtered_df is not None and not filtered_df.empty:
         cols_to_include = [
             "item","comment", "Quantity_original", "Quantity_used", "material_code",
             "type", "pole", "datetouse_dt", "District", "project",
-            "Project Manager", "Circuit", "Segment",
+            "Project Manager","location_map", "Circuit", "Segment",
             "team lider","total", "PID", "sourcefile"
         ]
         cols_to_include = [c for c in cols_to_include if c in export_df.columns]
@@ -1252,7 +1252,7 @@ if filtered_df is not None and not filtered_df.empty:
                 # Columns to include
                 cols_to_include = [
                     "item","comment","Quantity_used","material_code","pole","datetouse_dt","done_display",
-                    "District","Project Manager","Circuit","Segment"
+                    "District","Project Manager","location_map","Circuit","Segment"
                 ]
                 cols_to_include = [c for c in cols_to_include if c in df_breakdown.columns]
                 df_breakdown = df_breakdown[cols_to_include]
@@ -1592,8 +1592,8 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
             gdf_list = [gpd.read_file(file) for file in file_list]
             combined_gdf = gpd.GeoDataFrame(pd.concat(gdf_list, ignore_index=True), crs=gdf_list[0].crs)
 
-            if "region" in filtered_df.columns:
-                active_regions = filtered_df["region"].dropna().unique().tolist()
+            if "location_map" in filtered_df.columns:
+                active_regions = filtered_df["location_map"].dropna().unique().tolist()
                 wards_to_select = []
                 for region in active_regions:
                     if region in mapping_region:
