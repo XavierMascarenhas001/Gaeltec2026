@@ -1548,15 +1548,15 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
                     st.info("No projects found for the selected filters.")
                 else:
                     for proj in sorted(projects):
-                        cols_to_use = [c for c in ['Circuit'] if c in filtered_df.columns]
+                        cols_to_use = [c for c in ['segmentcode'] if c in filtered_df.columns]
                         if not cols_to_use:
                             segments = pd.DataFrame()
                         else:
-                            proj_df = filtered_df[filtered_df['Circuit'] == proj][cols_to_use]
+                            proj_df = filtered_df[filtered_df['segmentcode'] == proj][cols_to_use]
                             segments = proj_df.dropna().drop_duplicates()
                     
                         # Use expander to make segment list scrollable
-                        with st.expander(f"Project: {proj} ({len(segments)} segments)"):
+                        with st.expander(f"Project: {proj} ({len(segments)} circuits)"):
                             if not segments.empty:
                                 display_text = segments.astype(str).agg(" | ".join, axis=1)
                                 # Scrollable container for segments
@@ -1567,9 +1567,9 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
                                     unsafe_allow_html=True
                                 )
                             else:
-                                st.write("No segment codes for this project.")
+                                st.write("No circuit codes for this project.")
             else:
-                st.info("Project or Segment Code columns not found in the data.")
+                st.info("Project or Circuit not found in the data.")
 
     # -----------------------------
     # Streamlit download button
