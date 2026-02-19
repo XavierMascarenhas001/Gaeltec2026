@@ -1539,7 +1539,7 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
         
         with col_left_top:
             st.markdown("<h3 style='color:white;'>Projects & Segments Overview</h3>", unsafe_allow_html=True)
-            required_cols = ['project', 'segmentcode', 'location_map']
+            required_cols = ['project', 'segmentcode']
             existing_cols = [c for c in required_cols if c in filtered_df.columns]
 
             if 'project' in existing_cols:
@@ -1548,7 +1548,7 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
                     st.info("No projects found for the selected filters.")
                 else:
                     for proj in sorted(projects):
-                        cols_to_use = [c for c in ['segmentcode', 'location_map'] if c in filtered_df.columns]
+                        cols_to_use = [c for c in ['segmentcode'] if c in filtered_df.columns]
                         if not cols_to_use:
                             segments = pd.DataFrame()
                         else:
