@@ -1562,7 +1562,7 @@ if {'datetouse_dt','done', 'team_name', 'total'}.issubset(filtered_df.columns):
                                 # Scrollable container for segments
                                 st.markdown(
                                     "<div style='max-height:150px; overflow-y:auto; padding:5px; border:1px solid #444;'>"
-                                    + "<br>".join(segments['circuit'].astype(str))
+                                    + "<br>".join(segments['segmentcode'].astype(str))
                                     + "</div>",
                                     unsafe_allow_html=True
                                 )
