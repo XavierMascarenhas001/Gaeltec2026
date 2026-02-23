@@ -1254,7 +1254,7 @@ if filtered_df is not None and not filtered_df.empty:
                 # Columns to include
                 cols_to_include = [
                     "item","comment","Quantity_used","material_code","pole","datetouse_dt","done_display",
-                    "District","Project Manager","location_map","Circuit","Segment"
+                    "District", "project","Project Manager","location_map","Circuit","Segment"
                 ]
                 cols_to_include = [c for c in cols_to_include if c in df_breakdown.columns]
                 df_breakdown = df_breakdown[cols_to_include]
