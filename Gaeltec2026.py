@@ -381,7 +381,7 @@ def generate_excel_styled_multilevel(filtered_df, poles_df=None):
     ws.title = "Daily Revenue"
 
     # ---- Sheet 1: Daily Revenue ----
-    if {'shire', 'project','location_map','segmentdesc', 'segmentcode', 'projectmanager', 'datetouse_dt','done', 'total'}.issubset(filtered_df.columns):
+    if {'shire', 'project','location_map','segmentdesc', 'segmentcode', 'projectmanager', 'datetouse_dt', 'total'}.issubset(filtered_df.columns):
         daily_df = (
             filtered_df
             .groupby(['datetouse_dt','shire','project','location_map','segmentdesc','segmentcode','projectmanager'], as_index=False)
