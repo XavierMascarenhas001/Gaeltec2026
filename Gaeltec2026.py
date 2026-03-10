@@ -589,6 +589,7 @@ file_project_mapping = {
     "lv & esqcr": ["Lanark", "LV"],
     "11kv rebuilt": ["Lanark", "11kV Rebuilt"],
     "33kv rebuilt": ["Lanark", "33kV Rebuilt"]
+    "Hi5_4_Lanark_2026": ["Lanark", "11kV Refurb"],
 }
 
 pole_erected_keys = {
